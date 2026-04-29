@@ -37,7 +37,3 @@ node_modules/specpress/node_modules/
 node_modules/katex/cli.js
 node_modules/katex/src/
 node_modules/katex/contrib/
-
-# Dev dependencies (not needed at runtime)
-node_modules/docx/
-node_modules/jszip/
