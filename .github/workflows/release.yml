@@ -21,7 +21,7 @@ jobs:
 
       - run: npm test
 
-      - run: npx @vscode/vsce package --no-rewrite-relative-links --allow-missing-repository
+      - run: npm prune --omit=dev && npx @vscode/vsce package --no-rewrite-relative-links --allow-missing-repository
 
       - name: Upload VSIX to Release
         uses: softprops/action-gh-release@v2
