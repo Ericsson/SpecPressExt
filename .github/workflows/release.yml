@@ -20,11 +20,14 @@ jobs:
       - name: Set version from tag
         run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version
 
-      - run: npm ci --omit=optional
+      - run: npm install --omit=optional
 
       - run: npm test
 
-      - run: npm prune --omit=dev && npx @vscode/vsce package --no-rewrite-relative-links --allow-missing-repository
+      - name: Package VSIX
+        run: |
+          npm prune --omit=dev --omit=optional
+          npx @vscode/vsce package --no-rewrite-relative-links --allow-missing-repository
 
       - name: Upload VSIX to Release
         uses: softprops/action-gh-release@v2
