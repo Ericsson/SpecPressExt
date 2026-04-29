@@ -1,0 +1,39 @@
+.vscode
+.amazonq
+.github
+.gitignore
+test/
+scripts/run-tests.js
+co-develop.cmd
+
+*.vsix
+
+# Node modules: exclude TypeScript types, docs, tests, source maps
+node_modules/@types/
+node_modules/**/test/
+node_modules/**/tests/
+node_modules/**/*.d.ts
+node_modules/**/*.map
+node_modules/**/CHANGELOG*
+node_modules/**/HISTORY*
+node_modules/**/README*
+node_modules/**/LICENSE*
+node_modules/**/LICENCE*
+node_modules/**/.eslint*
+node_modules/**/.travis*
+node_modules/**/.github/
+node_modules/**/docs/
+node_modules/**/doc/
+node_modules/**/example/
+node_modules/**/examples/
+
+# Specpress: only lib/ is needed at runtime
+node_modules/specpress/src/
+node_modules/specpress/tests/
+node_modules/specpress/index.mjs
+node_modules/specpress/node_modules/
+
+# KaTeX: exclude font files not needed (we embed CSS only)
+node_modules/katex/cli.js
+node_modules/katex/src/
+node_modules/katex/contrib/

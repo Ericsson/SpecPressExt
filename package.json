@@ -1,0 +1,207 @@
+{
+  "name": "specpressext",
+  "displayName": "SpecPress Extension for VSC",
+  "version": "0.6.0",
+  "publisher": "Ericsson",
+  "icon": "images/logo.png",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ericsson/SpecPressExt.git"
+  },
+  "activationEvents": [
+    "onLanguage:markdown",
+    "onLanguage:asn1"
+  ],
+  "main": "./src/extension.js",
+  "scripts": {
+    "test": "node scripts/run-tests.js",
+    "test:quick": "node scripts/run-tests.js --quick"
+  },
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "specpress.jsonTableEditor",
+        "displayName": "JsonTable Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.json"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
+    "commands": [
+      {
+        "command": "specpress.previewMultiple",
+        "title": "SpecPress: Preview Selected"
+      },
+      {
+        "command": "specpress.exportSelectedAsDocx",
+        "title": "SpecPress: Export Selected to DOCX"
+      },
+      {
+        "command": "specpress.compareDocx",
+        "title": "SpecPress: Export Selected as DOCX DIFF"
+      },
+      {
+        "command": "specpress.preview",
+        "title": "SpecPress: Open Preview"
+      },
+      {
+        "command": "specpress.exportHtml",
+        "title": "SpecPress: Export to HTML"
+      },
+      {
+        "command": "specpress.restoreMultiPreview",
+        "title": "SpecPress: Show multi-page preview"
+      },
+      {
+        "command": "specpress.editSection",
+        "title": "SpecPress: Edit this section"
+      },
+      {
+        "command": "specpress.openJsonTableEditor",
+        "title": "SpecPress: JsonTable Editor"
+      },
+      {
+        "command": "specpress.openOrCreateJsonTable",
+        "title": "SpecPress: Open/Create JsonTable"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "specpress.previewMultiple",
+          "group": "specpress@1"
+        },
+        {
+          "command": "specpress.exportSelectedAsDocx",
+          "group": "specpress@2"
+        },
+        {
+          "command": "specpress.compareDocx",
+          "group": "specpress@3"
+        },
+        {
+          "command": "specpress.openJsonTableEditor",
+          "when": "resourceExtname == '.json'",
+          "group": "specpress@4"
+        }
+      ],
+      "webview/context": [
+        {
+          "command": "specpress.exportHtml",
+          "when": "webviewId == 'specpressPreview'",
+          "group": "specpress@1"
+        },
+        {
+          "command": "specpress.editSection",
+          "when": "webviewId == 'specpressPreview' && specpress.isMultiFilePreview",
+          "group": "specpress@2"
+        },
+        {
+          "command": "specpress.restoreMultiPreview",
+          "when": "webviewId == 'specpressPreview' && !specpress.isMultiFilePreview",
+          "group": "specpress@3"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "specpress.preview",
+          "group": "specpress@1"
+        },
+        {
+          "command": "specpress.openJsonTableEditor",
+          "when": "resourceExtname == '.json'",
+          "group": "specpress@2"
+        },
+        {
+          "command": "specpress.openOrCreateJsonTable",
+          "when": "resourceLangId == 'markdown'",
+          "group": "specpress@3"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "SpecPress",
+      "properties": {
+        "specpress.renderers": {
+          "type": "object",
+          "default": {},
+          "description": "Custom HTML renderers for markdown elements"
+        },
+        "specpress.cssFile": {
+          "type": "string",
+          "default": "",
+          "description": "Path to CSS file relative to workspace root. If absent the viewer uses its in-built template."
+        },
+        "specpress.mermaidConfigFile": {
+          "type": "string",
+          "default": "",
+          "description": "Path to Mermaid config JSON file relative to workspace root. If absent the viewer uses its in-built mermaid configuration"
+        },
+        "specpress.multiPagePreviewDefaultPath": {
+          "type": "string",
+          "default": "",
+          "description": "Default file or folder path for multi-page preview (Ctrl+Shift+M). Relative paths are resolved from the workspace root."
+        },
+        "specpress.specificationRootPath": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ],
+          "default": "",
+          "description": "Root folder(s) of the specification tree. Accepts a single path or an array of paths. SpecPress is active only for files inside these roots. Relative paths are resolved from the workspace root."
+        },
+        "specpress.deriveSectionNumbers": {
+          "type": "boolean",
+          "default": false,
+          "description": "If set to true, section numbers are derived from leading numbers in folder- and file names and injected into the heading rows."
+        },
+        "specpress.coverPageTemplate": {
+          "type": "string",
+          "default": "",
+          "description": "Path to an HTML cover page template file relative to workspace root. Placeholders like {{KEY}} are replaced with values from the cover page data file."
+        },
+        "specpress.coverPageData": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a JSON file with cover page placeholder values relative to workspace root."
+        },
+        "specpress.defaultExportFolder": {
+          "type": "string",
+          "default": "",
+          "description": "Default folder for HTML and DOCX export dialogs. Relative to workspace root or absolute. Overridden by the last chosen folder during the session."
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "specpress.restoreMultiPreview",
+        "key": "ctrl+shift+m",
+        "mac": "cmd+shift+m"
+      }
+    ]
+  },
+  "dependencies": {
+    "specpress": "^3.0.0"
+  },
+  "devDependencies": {
+    "docx": "^9.6.1",
+    "jszip": "^3.10.1"
+  }
+}
