@@ -12,6 +12,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
 
       - uses: actions/setup-node@v4
         with:
@@ -33,3 +35,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: '*.vsix'
+
+      - name: Commit updated version to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "chore: bump version to ${GITHUB_REF_NAME#v} [skip ci]" || true
+          git push origin main
