@@ -24,11 +24,11 @@ Ensure that VS-Code or VS-Codium is installed. Download the latest `.vsix` file 
 
 Install the VSIX file:
 
-- **VS-Code**: Follow the instructions at [Install from a VSIX](https://code.visualstudio.com/docs/configure/extensions/extension-marketplace#_install-from-a-vsix), or run:
+- **VS-Code**: Follow the instructions at [Install from a VSIX](https://code.visualstudio.com/docs/configure/extensions/extension-marketplace#_install-from-a-vsix), or run the following and replace x, y and z with the version number you downloaded:
   ```bash
   code --install-extension specpressext-x.y.z.vsix
   ```
-- **VS-Codium**: Run:
+- **VS-Codium**: Run the following and replace x, y and z with the version number you downloaded:
   ```bash
   codium --install-extension specpressext-x.y.z.vsix
   ```
