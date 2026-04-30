@@ -1,4 +1,4 @@
-﻿# 1 SpecPress Extension for VS-Code
+# 1 SpecPress Extension for VS-Code
 
 The SpecPress Extension for VS-Code offers functionality to convert 3GPP specifications (written in a tree of markdown, asn, json... files) into an HTML or DOCX file that offers the same look&feel as 3GPP's traditional DOCX specifications.
 
@@ -13,6 +13,7 @@ The extension is a thin VS Code integration layer on top of the [specpress](http
 - **HTML Export** - Export current preview or the selected files/folders to a standalone HTML file with a media directory containing all images. Supports exporting from local files or from any git commit/branch/tag.
 - **DOCX Export** - Exports the selected files/folders as a DOCX document in 3GPP style including appropriate style settings. Supports exporting from local files or from any git commit/branch/tag.
 - **DOCX DIFF** - Exports two DOCX documents from two different versions (local version, branches, commits, ...) and generates a tracked-changes comparison in MS-Word.
+- **Change Tracking Preview** - Shows tracked changes (insertions/deletions) directly in the live preview by comparing the current version against any git baseline commit.
 - **Cover Page** - Configurable cover page for spec-root-level exports in both HTML and DOCX.
 - **JsonTable Editor** - A WYSIWYG table editor for JsonTable files (JSON-defined tables used by specpress). Double-click cells to edit markdown content, drag to reorder rows/columns, merge cells via context menu, and see rendered output in real time.
 
@@ -25,10 +26,13 @@ Install the VSIX file:
 Follow the instructions at [Install from a VSIX](https://code.visualstudio.com/docs/configure/extensions/extension-marketplace#_install-from-a-vsix). Alternatively, use the command line as follows:
 
 - **VS-Code**: Run:
+
   ```bash
   code --install-extension specpressext-x.y.z.vsix
   ```
+
 - **VS-Codium**: Run:
+
   ```bash
   codium --install-extension specpressext-x.y.z.vsix
   ```
@@ -144,11 +148,11 @@ The HTML file can be shared and opened in a browser.
 
 To export a DOCX version, select one or more files and/or folders in the VS-Code explorer pane. Right-click and choose "**Export Selected to DOCX**". The extension then guides you through the following steps:
 
-1. **Version selection** â€” A searchable commit picker appears showing the 200 most recent git commits. Choose "Local files (current workspace)" to export the current working copy, or select a specific commit/branch/tag to export an older version. You can type to filter by commit message, hash, or ref name.
+1. **Version selection** — A searchable commit picker appears showing the 200 most recent git commits. Choose "Local files (current workspace)" to export the current working copy, or select a specific commit/branch/tag to export an older version. You can type to filter by commit message, hash, or ref name.
 
-2. **Save location** â€” A save dialog opens with a timestamped default filename (e.g. `2026-03-31 14-30-00 Export.docx`). If exporting from a git commit, the short hash is appended (e.g. `...Export_abc1234.docx`). The dialog initially opens in the folder configured via `specpress.defaultExportFolder`, or in the last used export folder.
+2. **Save location** — A save dialog opens with a timestamped default filename (e.g. `2026-03-31 14-30-00 Export.docx`). If exporting from a git commit, the short hash is appended (e.g. `...Export_abc1234.docx`). The dialog initially opens in the folder configured via `specpress.defaultExportFolder`, or in the last used export folder.
 
-3. **Export** â€” The extension collects all markdown and ASN.1 files from the selection, processes section numbers, renders mermaid diagrams, converts equations, and generates the DOCX file with 3GPP-style formatting.
+3. **Export** — The extension collects all markdown and ASN.1 files from the selection, processes section numbers, renders mermaid diagrams, converts equations, and generates the DOCX file with 3GPP-style formatting.
 
 When exporting at the spec root level (i.e. the folder configured in `specpress.specificationRootPath`), a cover page is automatically included if `specpress.coverPageTemplate` and `specpress.coverPageData` are configured.
 
@@ -162,17 +166,31 @@ To generate a **PDF** version of the specification, it is recommended to generat
 
 The "**Compare as DOCX**" function generates a tracked-changes comparison between two versions of the specification. This is useful for creating traditional Change Requests (CRs) or for reviewing changes between any two versions.
 
-1. **Select files/folders** â€” Choose the files or folders to compare in the explorer pane. Right-click and choose "**Compare as DOCX**".
+1. **Select files/folders** — Choose the files or folders to compare in the explorer pane. Right-click and choose "**Compare as DOCX**".
 
-2. **Baseline version** â€” Select the original (baseline) commit from the commit picker. This is the "before" version.
+2. **Baseline version** — Select the original (baseline) commit from the commit picker. This is the "before" version.
 
-3. **Revised version** â€” Select the revised (target) commit, or choose "Local files" to compare against the current working copy.
+3. **Revised version** — Select the revised (target) commit, or choose "Local files" to compare against the current working copy.
 
-4. **Author name** â€” Enter the author name for tracked changes (default: "SpecPress").
+4. **Author name** — Enter the author name for tracked changes (default: "SpecPress").
 
 The extension generates two DOCX files (baseline and revised), then launches MS-Word with instructions to produce a legal black-line comparison. MS-Word must be installed for this function to work.
 
-### 1.5.7 3GPP style rendering
+### 1.5.7 Change tracking preview
+
+The live preview (single-file or multi-file) can show tracked changes against a baseline commit. This is useful for reviewing what has changed since a previous version without leaving the editor.
+
+To enable change tracking, right-click into the preview and choose '**SpecPress: Enable Change Tracking**'. A commit picker appears — select the baseline commit to compare against. The preview then highlights:
+
+- **Insertions** — shown in blue with underline
+- **Deletions** — shown in red with strikethrough
+- **Changed images/diagrams** — shown side by side (old and new)
+
+The preview title changes to 'Preview (changes)' while change tracking is active. Edits to the source files are reflected in real time, with the diff updating as you type.
+
+To disable change tracking, right-click the preview and choose '**SpecPress: Disable Change Tracking**'. The preview returns to its normal rendering.
+
+### 1.5.8 3GPP style rendering
 
 The specpress library performs extensive 3GPP-style rendering of markdown content (bullet styles, figure/table captions, NOTE/EXAMPLE/Editor's Note paragraphs, ASN.1 syntax highlighting, LaTeX equations, Annex headings, hyperlinks, JsonTable, etc.).
 
@@ -180,20 +198,19 @@ For full documentation of the rendering rules, see the [specpress README](https:
 
 ![Example of a JsonTable in VS Code](images/05_example_of_JsonTable_in_vscode.png)
 
-Figure 1.5.7-1: Screenshot of a JsonTable in VS-Code
+Figure 1.5.8-1: Screenshot of a JsonTable in VS-Code
 
-### 1.5.8 Section numbering
+### 1.5.9 Section numbering
 
 Section numbering is a core feature of the specpress library. It derives section numbers automatically from the folder and file hierarchy using x-placeholders in headings and captions. Enable it by setting `specpress.deriveSectionNumbers` to `true`.
 
 For full documentation of the section numbering rules (folder/file structure, x-placeholders, auto-generated headings), see the [specpress README](https://github.com/Ericsson/specpress#section-numbering).
 
-### 1.5.9 Mermaid diagram caching
+### 1.5.10 Mermaid diagram caching
 
 When exporting to DOCX, mermaid diagrams are rendered to SVG using a hidden VS-Code webview. The mermaid library (`mermaid.min.js`) is automatically downloaded from CDN on first use and cached in VS-Code's global storage. It is refreshed every 24 hours; if offline, the stale cache is reused.
 
 The rendered SVGs are cached on disk (in a `cached/` directory next to the spec root) so that unchanged diagrams are never re-rendered. For full documentation of the SVG caching mechanism (cache location, cache keys, cleanup), see the [specpress README](https://github.com/Ericsson/specpress#mermaid-diagram-caching).
-
 
 ## 1.6 Development and Testing
 
@@ -225,7 +242,6 @@ The extension-specific tests are in `test/vscode/` and cover the ConfigLoader, S
 
 The bulk of the conversion tests (markdown-to-HTML, markdown-to-DOCX, section numbering, ASN.1, etc.) live in the [specpress](https://github.com/Ericsson/specpress) library.
 
-
 ### 1.6.4 Architecture principles
 
 This extension is a **thin VS Code shell** around the [specpress](https://github.com/Ericsson/specpress) library. The boundary is strict:
@@ -236,11 +252,11 @@ This extension is a **thin VS Code shell** around the [specpress](https://github
 
 Key patterns:
 
-- **ConfigLoader** â€” centralized settings access with caching; invalidated on `onDidChangeConfiguration`, re-reads lazily.
-- **StateManager** â€” single object for all runtime state; no scattered module-level variables.
-- **Command isolation** â€” each command handler is a self-contained async function in its own file under `src/vscode/`, receiving `state`, `config`, and `context` as parameters.
-- **Singleton panel** â€” reuse the existing webview panel; clean up on disposal.
-- **Lifecycle management** â€” tie listener disposal to panel disposal; push all disposables to `context.subscriptions`.
+- **ConfigLoader** — centralized settings access with caching; invalidated on `onDidChangeConfiguration`, re-reads lazily.
+- **StateManager** — single object for all runtime state; no scattered module-level variables.
+- **Command isolation** — each command handler is a self-contained async function in its own file under `src/vscode/`, receiving `state`, `config`, and `context` as parameters.
+- **Singleton panel** — reuse the existing webview panel; clean up on disposal.
+- **Lifecycle management** — tie listener disposal to panel disposal; push all disposables to `context.subscriptions`.
 
 ### 1.6.5 Coding style
 
@@ -249,12 +265,12 @@ Key patterns:
 - **Single quotes** for strings, template literals for HTML/multi-line
 - **camelCase** for functions and variables, **PascalCase** for classes
 - **Command IDs**: `specpress.` prefix (e.g., `specpress.preview`)
-- Import dependencies at the top, grouped: VS Code API â†’ Node.js built-ins â†’ specpress library
+- Import dependencies at the top, grouped: VS Code API → Node.js built-ins → specpress library
 
 ### 1.6.6 Anti-patterns to avoid
 
-- âŒ Implementing conversion logic in the extension â€” delegate to specpress
-- âŒ Scattered module-level `let` variables â€” use StateManager
-- âŒ Hardcoded path separators â€” use `path.join()`
-- âŒ Ignoring user cancellation (null from dialogs/pickers) â€” always check and return early
-- âŒ Creating new panels on every invocation â€” reuse with singleton pattern
+- ❌ Implementing conversion logic in the extension — delegate to specpress
+- ❌ Scattered module-level `let` variables — use StateManager
+- ❌ Hardcoded path separators — use `path.join()`
+- ❌ Ignoring user cancellation (null from dialogs/pickers) — always check and return early
+- ❌ Creating new panels on every invocation — reuse with singleton pattern
