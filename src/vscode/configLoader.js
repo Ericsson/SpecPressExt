@@ -65,6 +65,7 @@ class ConfigLoader {
 
   /**
    * Loads CSS content from workspace configuration or extension defaults.
+   * Appends the extension's diff.css for change tracking styling.
    * @param {string} extensionDir - Absolute path to the extension root directory.
    * @returns {string} CSS content.
    */
@@ -72,24 +73,33 @@ class ConfigLoader {
     if (this._css !== null) return this._css
     const cssFile = this.raw.get('cssFile', '')
 
+    let baseCss = ''
     if (cssFile && this.wsRoot) {
       const cssPath = path.join(this.wsRoot, cssFile)
       if (fs.existsSync(cssPath)) {
-        this._css = fs.readFileSync(cssPath, 'utf8')
-        return this._css
+        baseCss = fs.readFileSync(cssPath, 'utf8')
       }
     }
 
-    const defaultCssPath = path.join(extensionDir, 'node_modules/specpress/lib/css/3gpp.css')
-    if (fs.existsSync(defaultCssPath)) {
-      this._css = fs.readFileSync(defaultCssPath, 'utf8')
-      return this._css
-    }
-
-    this._css = `body{font-family:Arial,sans-serif;padding:20px;max-width:900px;margin:0 auto}
+    if (!baseCss) {
+      const defaultCssPath = path.join(extensionDir, 'node_modules/specpress/lib/css/3gpp.css')
+      if (fs.existsSync(defaultCssPath)) {
+        baseCss = fs.readFileSync(defaultCssPath, 'utf8')
+      } else {
+        baseCss = `body{font-family:Arial,sans-serif;padding:20px;max-width:900px;margin:0 auto}
 table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:8px}
 code{background:#f4f4f4;padding:2px 6px;border-radius:3px}
 pre{background:#f4f4f4;padding:10px;overflow-x:auto}pre code{background:none;padding:0}`
+      }
+    }
+
+    // Append diff CSS (inert unless change tracking injects <ins>/<del> markup)
+    const diffCssPath = path.join(extensionDir, 'css/diff.css')
+    if (fs.existsSync(diffCssPath)) {
+      baseCss += '\n' + fs.readFileSync(diffCssPath, 'utf8')
+    }
+
+    this._css = baseCss
     return this._css
   }
 

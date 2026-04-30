@@ -16,6 +16,8 @@ class StateManager {
     this.updatePreview = null
     /** @type {import('vscode').Disposable|null} Listener for editor scroll position changes */
     this.scrollSync = null
+    /** @type {import('vscode').Disposable|null} Listener for file saves (JSON changes) */
+    this.fileSaveListener = null
     /** @type {boolean} Whether the current preview shows multiple files */
     this.isMultiFilePreview = false
     /** @type {boolean} Guard flag to prevent scroll feedback loops from editor */
@@ -44,14 +46,22 @@ class StateManager {
     this.lastExportFolder = null
     /** @type {boolean} Whether auto-preview is active */
     this.autoPreviewActive = false
+    /** @type {string|null} Baseline commit for change tracking (null = disabled) */
+    this.changeTrackingCommit = null
+    /** @type {string|null} Repo root for change tracking */
+    this.changeTrackingRepoRoot = null
+    /** @type {Map<string,string|Buffer>|null} Cached baseline file contents */
+    this.changeTrackingBaseline = null
   }
 
   /** Disposes listeners and resets preview-related state. */
   disposeListeners() {
     if (this.updatePreview) this.updatePreview.dispose()
     if (this.scrollSync) this.scrollSync.dispose()
+    if (this.fileSaveListener) this.fileSaveListener.dispose()
     this.updatePreview = null
     this.scrollSync = null
+    this.fileSaveListener = null
   }
 
   /** Resets all multi-file state. */

@@ -1,7 +1,7 @@
 {
   "name": "specpressext",
   "displayName": "SpecPress Extension for VSC",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "publisher": "Ericsson",
   "icon": "images/logo.png",
   "engines": {
@@ -73,6 +73,14 @@
       {
         "command": "specpress.openOrCreateJsonTable",
         "title": "SpecPress: Open/Create JsonTable"
+      },
+      {
+        "command": "specpress.toggleChangeTracking",
+        "title": "SpecPress: Enable Change Tracking"
+      },
+      {
+        "command": "specpress.disableChangeTracking",
+        "title": "SpecPress: Disable Change Tracking"
       }
     ],
     "menus": {
@@ -96,6 +104,16 @@
         }
       ],
       "webview/context": [
+        {
+          "command": "specpress.toggleChangeTracking",
+          "when": "webviewId == 'specpressPreview' && !specpress.changeTrackingActive",
+          "group": "specpress@0"
+        },
+        {
+          "command": "specpress.disableChangeTracking",
+          "when": "webviewId == 'specpressPreview' && specpress.changeTrackingActive",
+          "group": "specpress@0"
+        },
         {
           "command": "specpress.exportHtml",
           "when": "webviewId == 'specpressPreview'",
@@ -198,6 +216,7 @@
     ]
   },
   "dependencies": {
+    "htmldiff-js": "^1.0.5",
     "specpress": "^3.0.0"
   }
 }
