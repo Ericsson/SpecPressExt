@@ -150,6 +150,87 @@ function activate(context) {
       await JsonTableEditorProvider.openOrCreate(vscode)
     }),
 
+    vscode.commands.registerCommand('specpress.toggleChangeTracking', async () => {
+      let repoRoot
+      const specRoots = config.resolveSpecRoots()
+      const searchPath = specRoots.length > 0 ? specRoots[0] : (config.wsRoot || '')
+      try {
+        repoRoot = getRepoRoot(searchPath)
+      } catch (e) {
+        vscode.window.showErrorMessage('Change tracking requires a git repository.')
+        return
+      }
+
+      const baselineCommit = await pickCommit(repoRoot, 'Select baseline commit for change tracking')
+      if (!baselineCommit) return
+
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'Loading baseline for change tracking...' },
+        async () => {
+          const searchPaths = specRoots.length > 0 ? specRoots : [config.wsRoot]
+          const baselineCache = new Map()
+
+          for (const p of searchPaths) {
+            const rel = path.relative(repoRoot, p).replace(/\\/g, '/')
+            const prefix = rel ? rel + '/' : ''
+            try {
+              const tar = execSync(`git archive ${baselineCommit} -- "${prefix}"`, {
+                cwd: repoRoot, maxBuffer: 50 * 1024 * 1024
+              })
+              // Parse tar to extract file contents
+              let offset = 0
+              while (offset < tar.length - 512) {
+                const header = tar.slice(offset, offset + 512)
+                const name = header.slice(0, 100).toString().replace(/\0/g, '').trim()
+                if (!name) break
+                const sizeStr = header.slice(124, 136).toString().replace(/\0/g, '').trim()
+                const size = parseInt(sizeStr, 8) || 0
+                offset += 512
+                if (size > 0 && /\.(md|markdown|asn|json|png|jpg|jpeg|gif|bmp|svg)$/.test(name)) {
+                  const isImage = /\.(png|jpg|jpeg|gif|bmp|svg)$/.test(name)
+                  const content = isImage
+                    ? tar.slice(offset, offset + size) // keep as Buffer for binary
+                    : tar.slice(offset, offset + size).toString('utf8')
+                  baselineCache.set(path.join(repoRoot, name), content)
+                }
+                offset += Math.ceil(size / 512) * 512
+              }
+            } catch (e) { /* path may not exist in baseline */ }
+          }
+
+          state.changeTrackingCommit = baselineCommit
+          state.changeTrackingRepoRoot = repoRoot
+          state.changeTrackingBaseline = baselineCache
+          vscode.commands.executeCommand('setContext', 'specpress.changeTrackingActive', true)
+
+          let shortHash
+          try { shortHash = execSync(`git rev-parse --short ${baselineCommit}`, { cwd: repoRoot, encoding: 'utf8' }).trim() } catch (e) { shortHash = baselineCommit.substring(0, 7) }
+          vscode.window.showInformationMessage(`SpecPress: Change tracking enabled (baseline: ${shortHash}, ${baselineCache.size} files cached).`)
+        }
+      )
+
+      // Refresh current preview with diff
+      if (state.panel && state.currentEditor) {
+        previewMgr.setupPreview(state.currentEditor)
+      } else if (state.panel && state.lastMultiFileUris) {
+        await previewMgr.previewMultiple(state.lastMultiFileUris, null)
+      }
+    }),
+
+    vscode.commands.registerCommand('specpress.disableChangeTracking', async () => {
+      state.changeTrackingCommit = null
+      state.changeTrackingRepoRoot = null
+      state.changeTrackingBaseline = null
+      vscode.commands.executeCommand('setContext', 'specpress.changeTrackingActive', false)
+      vscode.window.showInformationMessage('SpecPress: Change tracking disabled.')
+      // Refresh current preview without diff
+      if (state.panel && state.currentEditor) {
+        previewMgr.setupPreview(state.currentEditor)
+      } else if (state.panel && state.lastMultiFileUris) {
+        await previewMgr.previewMultiple(state.lastMultiFileUris, null)
+      }
+    }),
+
     vscode.commands.registerCommand('specpress.restoreMultiPreview', () => {
       let uris = state.lastMultiFileUris
       if (!uris) {
