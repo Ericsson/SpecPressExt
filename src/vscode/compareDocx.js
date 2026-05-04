@@ -175,7 +175,7 @@ async function compareDocx(state, config, context, uri, allUris) {
           const tempMdOrig = path.join(tmpDir, `.~compare_orig_${ts}.md`)
           fs.writeFileSync(tempMdOrig, contentCommit)
           try {
-            const converter = new MarkdownToDocxConverter(mermaidConfigPath, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot), fileResolver)
+            const converter = new MarkdownToDocxConverter(mermaidConfigPath, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot), fileResolver, { updateFields: false })
             await converter.convert(tempMdOrig, originalDocx, path.dirname(filesFromCommit[0]))
           } finally {
             if (fs.existsSync(tempMdOrig)) fs.unlinkSync(tempMdOrig)
@@ -199,7 +199,7 @@ async function compareDocx(state, config, context, uri, allUris) {
           const tempMdRev = path.join(tmpDir, `.~compare_rev_${ts}.md`)
           fs.writeFileSync(tempMdRev, contentRevised)
           try {
-            const converter = new MarkdownToDocxConverter(mermaidConfigPath, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot), fileResolver)
+            const converter = new MarkdownToDocxConverter(mermaidConfigPath, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot), fileResolver, { updateFields: false })
             await converter.convert(tempMdRev, revisedDocx, path.dirname(filesRevised[0]))
           } finally {
             if (fs.existsSync(tempMdRev)) fs.unlinkSync(tempMdRev)
