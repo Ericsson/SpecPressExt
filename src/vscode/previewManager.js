@@ -5,6 +5,7 @@ const crypto = require('crypto')
 const HtmlDiff = require('htmldiff-js')
 const { Md2Html } = require('specpress/lib/md2html/md2html')
 const { collectFiles, concatenateFiles } = require('specpress/lib/common/specProcessor')
+const { insertOmittedMarkers } = require('./helpers')
 const { getFileFromCommit, collectFilesFromCommit } = require('specpress/lib/common/gitHelpers')
 
 /** Scroll synchronization and double-click navigation script injected into the webview preview. */
@@ -541,7 +542,13 @@ class PreviewManager {
 
       const specRoot = files.length > 0 ? config.getSpecRootForFile(files[0]) : ''
       const readFile = commitRef ? (f) => getFileFromCommit(commitRef.repoRoot, f, commitRef.commit) : undefined
-      const processedContent = concatenateFiles(files, readFile, specRoot)
+      let processedContent = concatenateFiles(files, readFile, specRoot)
+      if (specRoot && !state.isSpecRootPreview) {
+        const allFiles = collectFiles([specRoot])
+        if (files.length < allFiles.length) {
+          processedContent = insertOmittedMarkers(processedContent, files, allFiles)
+        }
+      }
 
       state.multiFileContent = processedContent
       state.multiFilePaths = filePaths

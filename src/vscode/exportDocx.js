@@ -3,11 +3,11 @@ const fs = require('fs')
 const path = require('path')
 const { execSync } = require('child_process')
 const { getRepoRoot, getFileFromCommit } = require('specpress/lib/common/gitHelpers')
-const { concatenateFiles, formatExportMessage } = require('specpress/lib/common/specProcessor')
+const { collectFiles, concatenateFiles, formatExportMessage } = require('specpress/lib/common/specProcessor')
 const { MarkdownToDocxConverter } = require('specpress/lib/md2docx/md2docx')
 const { ensureMermaidBundle } = require('specpress/lib/md2docx/handlers/mermaidHandler')
 const { buildCoverSections } = require('specpress/lib/md2docx/coverPage')
-const { pickCommit, collectFilesFromUris, collectFilesFromCommitUris, makeMermaidRenderer, formatExportTimestamp, showExportNotification } = require('./helpers')
+const { pickCommit, collectFilesFromUris, collectFilesFromCommitUris, insertOmittedMarkers, makeMermaidRenderer, formatExportTimestamp, showExportNotification } = require('./helpers')
 
 /**
  * Handles the DOCX export command.
@@ -83,7 +83,13 @@ async function exportDocx(state, config, context, uri, allUris) {
       { location: vscode.ProgressLocation.Notification, title: `Exporting DOCX from ${label}...`, cancellable: false },
       async () => {
         const readFile = shortHash ? (f) => getFileFromCommit(repoRoot, f, commitInput) : undefined
-        const content = concatenateFiles(files, readFile, specRoot)
+        let content = concatenateFiles(files, readFile, specRoot)
+        if (specRoot && !config.isSpecRootSelection(uris)) {
+          const allFiles = collectFiles([specRoot])
+          if (files.length < allFiles.length) {
+            content = insertOmittedMarkers(content, files, allFiles)
+          }
+        }
         const tmpDir = require('os').tmpdir()
         const timestamp = Date.now()
         const tempMd = path.join(tmpDir, `.~export_${timestamp}.md`)

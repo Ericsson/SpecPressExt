@@ -3,10 +3,10 @@ const fs = require('fs')
 const path = require('path')
 const { execSync } = require('child_process')
 const { getRepoRoot } = require('specpress/lib/common/gitHelpers')
-const { concatenateFiles } = require('specpress/lib/common/specProcessor')
+const { collectFiles, concatenateFiles } = require('specpress/lib/common/specProcessor')
 const { MarkdownToDocxConverter } = require('specpress/lib/md2docx/md2docx')
 const { ensureMermaidBundle } = require('specpress/lib/md2docx/handlers/mermaidHandler')
-const { pickCommit, collectFilesFromUris, collectFilesFromCommitUris, extractFilesFromCommit, makeMermaidRenderer } = require('./helpers')
+const { pickCommit, collectFilesFromUris, collectFilesFromCommitUris, extractFilesFromCommit, insertOmittedMarkers, makeMermaidRenderer } = require('./helpers')
 
 /**
  * Creates a fileResolver from a pre-extracted cache.
@@ -121,6 +121,13 @@ async function compareDocx(state, config, context, uri, allUris) {
   })
   if (!authorName) return
 
+  const insertPlaceholders = await vscode.window.showQuickPick(
+    [{ label: "Yes", value: true }, { label: "No", value: false }],
+    { placeHolder: "Insert placeholders for omitted sections?" }
+  )
+  if (!insertPlaceholders) return
+  const withMarkers = insertPlaceholders.value
+
   const filesFromCommit = collectFilesFromCommitUris(repoRoot, uris, commitInput)
   const filesRevised = targetShortHash
     ? collectFilesFromCommitUris(repoRoot, uris, targetInput)
@@ -161,7 +168,10 @@ async function compareDocx(state, config, context, uri, allUris) {
         const specRoot = filesFromCommit.length > 0 ? config.getSpecRootForFile(filesFromCommit[0])
           : filesRevised.length > 0 ? config.getSpecRootForFile(filesRevised[0]) : ''
 
-        const searchPaths = uris.map(u => u.fsPath)
+        const searchPaths = [...new Set(uris.map(u => {
+          const p = u.fsPath
+          return fs.existsSync(p) && fs.statSync(p).isDirectory() ? p : path.dirname(p)
+        }))]
 
         // Generate original DOCX from git commit
         progress.report({ message: `Loading files from ${shortHash}...` })
@@ -171,7 +181,11 @@ async function compareDocx(state, config, context, uri, allUris) {
           const fileResolver = makeCachedFileResolver(baselineCache)
 
           progress.report({ message: `Generating baseline DOCX (${shortHash})...` })
-          const contentCommit = concatenateFiles(filesFromCommit, readBaseline, specRoot)
+          let contentCommit = concatenateFiles(filesFromCommit, readBaseline, specRoot)
+          if (withMarkers && specRoot) {
+            const allFiles = collectFiles([specRoot])
+            contentCommit = insertOmittedMarkers(contentCommit, filesFromCommit, allFiles)
+          }
           const tempMdOrig = path.join(tmpDir, `.~compare_orig_${ts}.md`)
           fs.writeFileSync(tempMdOrig, contentCommit)
           try {
@@ -195,7 +209,11 @@ async function compareDocx(state, config, context, uri, allUris) {
           }
 
           progress.report({ message: `Generating revised DOCX (${revisedLabel})...` })
-          const contentRevised = concatenateFiles(filesRevised, readRevised, specRoot)
+          let contentRevised = concatenateFiles(filesRevised, readRevised, specRoot)
+          if (withMarkers && specRoot) {
+            const allFiles = collectFiles([specRoot])
+            contentRevised = insertOmittedMarkers(contentRevised, filesRevised, allFiles)
+          }
           const tempMdRev = path.join(tmpDir, `.~compare_rev_${ts}.md`)
           fs.writeFileSync(tempMdRev, contentRevised)
           try {
