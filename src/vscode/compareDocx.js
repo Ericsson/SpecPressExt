@@ -2,11 +2,30 @@ const vscode = require('vscode')
 const fs = require('fs')
 const path = require('path')
 const { execSync } = require('child_process')
-const { getRepoRoot, getFileFromCommit } = require('specpress/lib/common/gitHelpers')
+const { getRepoRoot, getFileFromCommit, getBinaryFileFromCommit } = require('specpress/lib/common/gitHelpers')
 const { concatenateFiles } = require('specpress/lib/common/specProcessor')
 const { MarkdownToDocxConverter } = require('specpress/lib/md2docx/md2docx')
 const { ensureMermaidBundle } = require('specpress/lib/md2docx/handlers/mermaidHandler')
 const { pickCommit, collectFilesFromUris, collectFilesFromCommitUris, makeMermaidRenderer } = require('./helpers')
+
+/**
+ * Creates a fileResolver that reads files from a git commit.
+ * Falls back to the local filesystem if the file doesn't exist in the commit.
+ *
+ * @param {string} repoRoot - Absolute path to the repository root.
+ * @param {string} commit - Git commit reference.
+ * @returns {Function} fileResolver `(absolutePath) => Buffer`
+ */
+function makeGitFileResolver(repoRoot, commit) {
+  return (filePath) => {
+    try {
+      return getBinaryFileFromCommit(repoRoot, filePath, commit)
+    } catch (e) {
+      // File may not exist in that commit (e.g. new file) — fall back to filesystem
+      return fs.readFileSync(filePath)
+    }
+  }
+}
 
 /**
  * Handles the DOCX comparison (diff) command.
@@ -126,7 +145,8 @@ async function compareDocx(state, config, context, uri, allUris) {
           const tempMdOrig = path.join(tmpDir, `.~compare_orig_${ts}.md`)
           fs.writeFileSync(tempMdOrig, contentCommit)
           try {
-            const converter = new MarkdownToDocxConverter(mermaidConfigPath, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot))
+            const fileResolver = makeGitFileResolver(repoRoot, commitInput)
+            const converter = new MarkdownToDocxConverter(mermaidConfigPath, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot), fileResolver)
             await converter.convert(tempMdOrig, originalDocx, path.dirname(filesFromCommit[0]))
           } finally {
             if (fs.existsSync(tempMdOrig)) fs.unlinkSync(tempMdOrig)
@@ -141,7 +161,8 @@ async function compareDocx(state, config, context, uri, allUris) {
           const tempMdRev = path.join(tmpDir, `.~compare_rev_${ts}.md`)
           fs.writeFileSync(tempMdRev, contentRevised)
           try {
-            const converter = new MarkdownToDocxConverter(mermaidConfigPath, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot))
+            const fileResolver = targetShortHash ? makeGitFileResolver(repoRoot, targetInput) : null
+            const converter = new MarkdownToDocxConverter(mermaidConfigPath, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot), fileResolver)
             await converter.convert(tempMdRev, revisedDocx, path.dirname(filesRevised[0]))
           } finally {
             if (fs.existsSync(tempMdRev)) fs.unlinkSync(tempMdRev)

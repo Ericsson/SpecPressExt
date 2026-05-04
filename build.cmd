@@ -5,6 +5,8 @@ rem Builds the VSIX package from a clean npm install (published specpress).
 rem If you were using co-develop.cmd, run it again after building to restore
 rem the local specpress link.
 echo Preparing for packaging (clean install)...
+rem Remove specpress junction first (rmdir without /s removes only the link, not the target)
+if exist node_modules\specpress rmdir node_modules\specpress 2>nul
 if exist node_modules rmdir /s /q node_modules
 if exist package-lock.json del package-lock.json
 call npm install --omit=optional
