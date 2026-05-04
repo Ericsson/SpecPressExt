@@ -2,28 +2,51 @@ const vscode = require('vscode')
 const fs = require('fs')
 const path = require('path')
 const { execSync } = require('child_process')
-const { getRepoRoot, getFileFromCommit, getBinaryFileFromCommit } = require('specpress/lib/common/gitHelpers')
+const { getRepoRoot } = require('specpress/lib/common/gitHelpers')
 const { concatenateFiles } = require('specpress/lib/common/specProcessor')
 const { MarkdownToDocxConverter } = require('specpress/lib/md2docx/md2docx')
 const { ensureMermaidBundle } = require('specpress/lib/md2docx/handlers/mermaidHandler')
-const { pickCommit, collectFilesFromUris, collectFilesFromCommitUris, makeMermaidRenderer } = require('./helpers')
+const { pickCommit, collectFilesFromUris, collectFilesFromCommitUris, extractFilesFromCommit, makeMermaidRenderer } = require('./helpers')
 
 /**
- * Creates a fileResolver that reads files from a git commit.
- * Falls back to the local filesystem if the file doesn't exist in the commit.
+ * Creates a fileResolver from a pre-extracted cache.
+ * Falls back to the local filesystem if the file isn't in the cache.
  *
- * @param {string} repoRoot - Absolute path to the repository root.
- * @param {string} commit - Git commit reference.
- * @returns {Function} fileResolver `(absolutePath) => Buffer`
+ * @param {Map<string, Buffer|string>} cache - Pre-extracted file cache.
+ * @returns {Function} fileResolver `(absolutePath) => Buffer|string`
  */
-function makeGitFileResolver(repoRoot, commit) {
+function makeCachedFileResolver(cache) {
+  const normPath = (p) => p.replace(/\\/g, '/').toLowerCase()
   return (filePath) => {
-    try {
-      return getBinaryFileFromCommit(repoRoot, filePath, commit)
-    } catch (e) {
-      // File may not exist in that commit (e.g. new file) — fall back to filesystem
-      return fs.readFileSync(filePath)
+    if (cache.has(filePath)) return cache.get(filePath)
+    const target = normPath(filePath)
+    for (const [key, val] of cache) {
+      if (normPath(key) === target) return val
     }
+    return fs.readFileSync(filePath)
+  }
+}
+
+/**
+ * Creates a text file reader from a pre-extracted cache (for concatenateFiles).
+ *
+ * @param {Map<string, Buffer|string>} cache - Pre-extracted file cache.
+ * @returns {Function} readFile `(absolutePath) => string`
+ */
+function makeCachedTextReader(cache) {
+  const normPath = (p) => p.replace(/\\/g, '/').toLowerCase()
+  return (filePath) => {
+    if (cache.has(filePath)) {
+      const content = cache.get(filePath)
+      return Buffer.isBuffer(content) ? content.toString('utf8') : content
+    }
+    const target = normPath(filePath)
+    for (const [key, val] of cache) {
+      if (normPath(key) === target) {
+        return Buffer.isBuffer(val) ? val.toString('utf8') : val
+      }
+    }
+    return fs.readFileSync(filePath, 'utf8')
   }
 }
 
@@ -138,14 +161,20 @@ async function compareDocx(state, config, context, uri, allUris) {
         const specRoot = filesFromCommit.length > 0 ? config.getSpecRootForFile(filesFromCommit[0])
           : filesRevised.length > 0 ? config.getSpecRootForFile(filesRevised[0]) : ''
 
+        const searchPaths = uris.map(u => u.fsPath)
+
         // Generate original DOCX from git commit
-        progress.report({ message: `Generating baseline from ${commitInput} (${shortHash})...` })
+        progress.report({ message: `Loading files from ${shortHash}...` })
         if (filesFromCommit.length > 0) {
-          const contentCommit = concatenateFiles(filesFromCommit, (f) => getFileFromCommit(repoRoot, f, commitInput), specRoot)
+          const baselineCache = extractFilesFromCommit(repoRoot, commitInput, searchPaths)
+          const readBaseline = makeCachedTextReader(baselineCache)
+          const fileResolver = makeCachedFileResolver(baselineCache)
+
+          progress.report({ message: `Generating baseline DOCX (${shortHash})...` })
+          const contentCommit = concatenateFiles(filesFromCommit, readBaseline, specRoot)
           const tempMdOrig = path.join(tmpDir, `.~compare_orig_${ts}.md`)
           fs.writeFileSync(tempMdOrig, contentCommit)
           try {
-            const fileResolver = makeGitFileResolver(repoRoot, commitInput)
             const converter = new MarkdownToDocxConverter(mermaidConfigPath, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot), fileResolver)
             await converter.convert(tempMdOrig, originalDocx, path.dirname(filesFromCommit[0]))
           } finally {
@@ -154,14 +183,22 @@ async function compareDocx(state, config, context, uri, allUris) {
         }
 
         // Generate revised DOCX
-        progress.report({ message: targetShortHash ? `Generating revised from ${targetInput} (${targetShortHash})...` : 'Generating revised from local files...' })
         if (filesRevised.length > 0) {
-          const readRevised = targetShortHash ? (f) => getFileFromCommit(repoRoot, f, targetInput) : undefined
+          let readRevised = undefined
+          let fileResolver = null
+
+          if (targetShortHash) {
+            progress.report({ message: `Loading files from ${targetShortHash}...` })
+            const revisedCache = extractFilesFromCommit(repoRoot, targetInput, searchPaths)
+            readRevised = makeCachedTextReader(revisedCache)
+            fileResolver = makeCachedFileResolver(revisedCache)
+          }
+
+          progress.report({ message: `Generating revised DOCX (${revisedLabel})...` })
           const contentRevised = concatenateFiles(filesRevised, readRevised, specRoot)
           const tempMdRev = path.join(tmpDir, `.~compare_rev_${ts}.md`)
           fs.writeFileSync(tempMdRev, contentRevised)
           try {
-            const fileResolver = targetShortHash ? makeGitFileResolver(repoRoot, targetInput) : null
             const converter = new MarkdownToDocxConverter(mermaidConfigPath, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot), fileResolver)
             await converter.convert(tempMdRev, revisedDocx, path.dirname(filesRevised[0]))
           } finally {

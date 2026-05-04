@@ -8,7 +8,7 @@ const { PreviewManager } = require('./vscode/previewManager')
 const { exportHtml } = require('./vscode/exportHtml')
 const { exportDocx } = require('./vscode/exportDocx')
 const { compareDocx } = require('./vscode/compareDocx')
-const { NOT_CONFIGURED_MSG, pickCommit } = require('./vscode/helpers')
+const { NOT_CONFIGURED_MSG, pickCommit, extractFilesFromCommit } = require('./vscode/helpers')
 const { getRepoRoot } = require('specpress/lib/common/gitHelpers')
 const { JsonTableEditorProvider } = require('./vscode/jsonTableEditor')
 
@@ -168,35 +168,7 @@ function activate(context) {
         { location: vscode.ProgressLocation.Notification, title: 'Loading baseline for change tracking...' },
         async () => {
           const searchPaths = specRoots.length > 0 ? specRoots : [config.wsRoot]
-          const baselineCache = new Map()
-
-          for (const p of searchPaths) {
-            const rel = path.relative(repoRoot, p).replace(/\\/g, '/')
-            const prefix = rel ? rel + '/' : ''
-            try {
-              const tar = execSync(`git archive ${baselineCommit} -- "${prefix}"`, {
-                cwd: repoRoot, maxBuffer: 50 * 1024 * 1024
-              })
-              // Parse tar to extract file contents
-              let offset = 0
-              while (offset < tar.length - 512) {
-                const header = tar.slice(offset, offset + 512)
-                const name = header.slice(0, 100).toString().replace(/\0/g, '').trim()
-                if (!name) break
-                const sizeStr = header.slice(124, 136).toString().replace(/\0/g, '').trim()
-                const size = parseInt(sizeStr, 8) || 0
-                offset += 512
-                if (size > 0 && /\.(md|markdown|asn|json|png|jpg|jpeg|gif|bmp|svg)$/.test(name)) {
-                  const isImage = /\.(png|jpg|jpeg|gif|bmp|svg)$/.test(name)
-                  const content = isImage
-                    ? tar.slice(offset, offset + size) // keep as Buffer for binary
-                    : tar.slice(offset, offset + size).toString('utf8')
-                  baselineCache.set(path.join(repoRoot, name), content)
-                }
-                offset += Math.ceil(size / 512) * 512
-              }
-            } catch (e) { /* path may not exist in baseline */ }
-          }
+          const baselineCache = extractFilesFromCommit(repoRoot, baselineCommit, searchPaths)
 
           state.changeTrackingCommit = baselineCommit
           state.changeTrackingRepoRoot = repoRoot

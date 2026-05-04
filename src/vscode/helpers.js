@@ -111,6 +111,50 @@ function collectFilesFromCommitUris(repoRoot, uris, commit) {
 }
 
 /**
+ * Extracts all spec-relevant files from a git commit using git archive + tar parsing.
+ * Returns a Map of absolute path to content (Buffer for binary files, string for text).
+ *
+ * This is used by both the HTML change tracking preview and the DOCX DIFF export
+ * to bulk-extract files from a commit in a single process spawn (much faster than
+ * individual git show calls per file).
+ *
+ * @param {string} repoRoot - Absolute path to the repository root.
+ * @param {string} commit - Git commit reference.
+ * @param {string[]} searchPaths - Absolute paths to directories to extract from.
+ * @returns {Map<string, Buffer|string>} Map of absolute file path to content.
+ */
+function extractFilesFromCommit(repoRoot, commit, searchPaths) {
+  const cache = new Map()
+  for (const p of searchPaths) {
+    const rel = path.relative(repoRoot, p).replace(/\\/g, '/')
+    const prefix = rel ? rel + '/' : ''
+    try {
+      const tar = execSync(`git archive ${commit} -- "${prefix}"`, {
+        cwd: repoRoot, maxBuffer: 50 * 1024 * 1024
+      })
+      let offset = 0
+      while (offset < tar.length - 512) {
+        const header = tar.slice(offset, offset + 512)
+        const name = header.slice(0, 100).toString().replace(/\0/g, '').trim()
+        if (!name) break
+        const sizeStr = header.slice(124, 136).toString().replace(/\0/g, '').trim()
+        const size = parseInt(sizeStr, 8) || 0
+        offset += 512
+        if (size > 0 && /\.(md|markdown|asn|json|png|jpg|jpeg|gif|bmp|svg)$/.test(name)) {
+          const isImage = /\.(png|jpg|jpeg|gif|bmp|svg)$/.test(name)
+          const content = isImage
+            ? tar.slice(offset, offset + size)
+            : tar.slice(offset, offset + size).toString('utf8')
+          cache.set(path.join(repoRoot, name), content)
+        }
+        offset += Math.ceil(size / 512) * 512
+      }
+    } catch (e) { /* path may not exist in that commit */ }
+  }
+  return cache
+}
+
+/**
  * Creates a mermaid renderer function that uses a hidden VS Code webview
  * with content-addressed SVG caching in the spec root.
  * @param {string} mermaidConfig - Mermaid config JSON string.
@@ -133,5 +177,6 @@ module.exports = {
   pickCommit,
   collectFilesFromUris,
   collectFilesFromCommitUris,
+  extractFilesFromCommit,
   makeMermaidRenderer
 }
