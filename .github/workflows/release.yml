@@ -24,6 +24,9 @@ jobs:
 
       - run: npm install --omit=optional
 
+      - name: Ensure latest specpress
+        run: npm update specpress
+
       - run: npm test
 
       - name: Package VSIX
