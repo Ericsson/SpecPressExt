@@ -143,7 +143,9 @@ class PreviewManager {
 
     const normPath = (p) => p.replace(/\\/g, '/').toLowerCase()
 
-    // Get baseline content
+    // -- Step 1: Retrieve baseline content from the cached git commit --
+    // For single-file mode, look up the file directly in the cache.
+    // For multi-file mode, concatenate all baseline files (same as the current preview does).
     let baselineContent = ''
     if (filePath) {
       baselineContent = state.changeTrackingBaseline.get(filePath) || ''
@@ -169,10 +171,12 @@ class PreviewManager {
 
     if (!baselineContent) return currentHtml
 
-    // Normalize line endings
+    // -- Step 2: Prepare baseline content for rendering --
+    // Normalize line endings (git stores LF, local files may have CRLF).
+    // Inline linked JsonTable files from the baseline cache, because the
+    // renderer would otherwise try to read them from the local filesystem
+    // (which has the current version, not the baseline version).
     baselineContent = baselineContent.replace(/\r\n/g, '\n')
-
-    // Inline linked JsonTable files from baseline cache so they render correctly
     baselineContent = baselineContent.replace(/\[JsonTable\]\(([^)]+\.json)\)/g, (match, jsonRelPath) => {
       try {
         const beforeMatch = baselineContent.substring(0, baselineContent.indexOf(match))
@@ -195,7 +199,9 @@ class PreviewManager {
       return match
     })
 
-    // Render baseline to HTML body
+    // -- Step 3: Render baseline markdown to HTML --
+    // Uses forPreview=false (no data-source-line attributes) since this is
+    // only used for diffing, not for scroll sync or navigation.
     this.ensureHandler()
     const includeCover = !!renderOpts.includeCoverPage
     let savedCoverHtml = null
@@ -213,26 +219,37 @@ class PreviewManager {
     )
     if (savedCoverHtml !== null) state.handler.coverPageHtml = savedCoverHtml
 
-    // Extract body from current HTML
+    // -- Step 4: Replace images and mermaid blocks with stable placeholders --
+    // htmldiff-js works on text tokens. Binary content (images) and complex
+    // blocks (mermaid) would be broken apart by the diff algorithm. We replace
+    // them with short placeholder strings before diffing, then restore them after.
+    //
+    // Placeholder IDs are derived from content hashes so that identical content
+    // in baseline and current produces the same placeholder text -- making
+    // htmldiff treat them as unchanged.
     const bodyMatch = currentHtml.match(/<body>([\s\S]*)<\/body>/)
     if (!bodyMatch) return currentHtml
     const currentBody = bodyMatch[1]
 
-    // Pre-process: replace images and mermaid blocks with stable placeholders
     const placeholders = new Map()
     const hashContent = (data) => crypto.createHash('md5').update(data).digest('hex').substring(0, 12)
 
+    /** Extracts mermaid source from a <pre> tag, stripping HTML attributes and normalizing line endings. */
+    const mermaidSource = (preTag) => preTag.replace(/<pre[^>]*>/, '').replace(/<\/pre>/, '').trim().replace(/\r\n/g, '\n')
+
     const replaceBlocks = (html, version) => {
-      // Replace mermaid pre blocks
+      // Mermaid: use source content hash as ID (ignores <pre> tag attributes
+      // which differ between forPreview=true and forPreview=false rendering)
       html = html.replace(/<pre class="mermaid"[^>]*>[\s\S]*?<\/pre>/g, (match) => {
-        const source = match.replace(/<pre[^>]*>/, '').replace(/<\/pre>/, '').trim().replace(/\r\n/g, '\n')
-        const hash = hashContent(source)
+        const hash = hashContent(mermaidSource(match))
         const id = `MERMAID_${hash}`
         if (!placeholders.has(id)) placeholders.set(id, {})
         placeholders.get(id)[version] = match
         return ` ${id} `
       })
-      // Replace img tags
+      // Images: use filename as stable ID, compute content hashes to detect
+      // actual file changes (the src URL differs between baseline and current
+      // because the current version uses webview URIs)
       html = html.replace(/<img[^>]*>/g, (match) => {
         const src = (match.match(/src="([^"]+)"/) || [])[1] || ''
         const decodedSrc = decodeURIComponent(src)
@@ -273,13 +290,20 @@ class PreviewManager {
     const processedBaseline = replaceBlocks(baselineBody, 'baseline')
     const processedCurrent = replaceBlocks(currentBody, 'current')
 
+    // -- Step 5: Run word-level HTML diff on the placeholder-substituted text --
     let diffedBody = HtmlDiff.default.execute(processedBaseline, processedCurrent)
 
-    // Restore placeholders
+    // -- Step 6: Restore placeholders with appropriate diff visualization --
+    // Three cases for each placeholder:
+    //   - Wrapped in <del>: element was removed -> show with "Deleted" label
+    //   - Wrapped in <ins>: element was added -> show with "New" label
+    //   - Unchanged text: element exists in both -> restore current version,
+    //     but check content hashes to detect file-level changes (e.g. an image
+    //     file was modified even though the markdown reference is the same)
     for (const [id, entry] of placeholders) {
       const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-      // Placeholder wrapped in <del> (removed)
+      // Case 1: placeholder is inside a <del> tag -> element was removed
       const delRe = new RegExp(`<del[^>]*>[^<]*?${escaped}[^<]*?<\\/del>`, 'g')
       diffedBody = diffedBody.replace(delRe, () => {
         const html = entry.baseline || entry.current || ''
@@ -287,7 +311,7 @@ class PreviewManager {
         return `<div class="diff-del-block"><p class="diff-label">${label}</p>${html}</div>`
       })
 
-      // Placeholder wrapped in <ins> (added)
+      // Case 2: placeholder is inside an <ins> tag -> element was added
       const insRe = new RegExp(`<ins[^>]*>[^<]*?${escaped}[^<]*?<\\/ins>`, 'g')
       diffedBody = diffedBody.replace(insRe, () => {
         const html = entry.current || entry.baseline || ''
@@ -295,7 +319,9 @@ class PreviewManager {
         return `<div class="diff-ins-block"><p class="diff-label">${label}</p>${html}</div>`
       })
 
-      // Placeholder text unchanged — restore or show diff if content changed
+      // Case 3: placeholder text unchanged in diff output -> element exists in both.
+      // For images, compare file content hashes to detect binary changes.
+      // For mermaid, compare source code to detect diagram changes.
       const plainRe = new RegExp(` ${escaped} `, 'g')
       diffedBody = diffedBody.replace(plainRe, () => {
         if (id.startsWith('IMG_') && entry.baselineHash && entry.currentHash && entry.baselineHash !== entry.currentHash) {
@@ -315,7 +341,7 @@ class PreviewManager {
           if (!oldImg) oldImg = currentImg
           return `<div class="diff-del-block"><p class="diff-label">Old image:</p>${oldImg}</div><div class="diff-ins-block"><p class="diff-label">New image:</p>${currentImg}</div>`
         }
-        if (id.startsWith('MERMAID_') && entry.baseline && entry.current && entry.baseline.replace(/<pre[^>]*>/, '').replace(/<\/pre>/, '').trim().replace(/\r\n/g, '\n') !== entry.current.replace(/<pre[^>]*>/, '').replace(/<\/pre>/, '').trim().replace(/\r\n/g, '\n')) {
+        if (id.startsWith('MERMAID_') && entry.baseline && entry.current && mermaidSource(entry.baseline) !== mermaidSource(entry.current)) {
           return `<div class="diff-del-block"><p class="diff-label">Deleted figure:</p>${entry.baseline}</div><div class="diff-ins-block"><p class="diff-label">New figure:</p>${entry.current}</div>`
         }
         return entry.current || entry.baseline || ` ${id} `
