@@ -293,8 +293,7 @@ test('loadCss caches result', () => {
 test('loadMermaidConfig returns default config from extension dir', () => {
   resetMocks()
   const c = new ConfigLoader()
-  const extensionDir = path.join(__dirname, '../..')
-  const config = c.loadMermaidConfig(extensionDir)
+  const config = c.loadMermaidConfig()
   assert.ok(config.startsWith('{'))
 })
 

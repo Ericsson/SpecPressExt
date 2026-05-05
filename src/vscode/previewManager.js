@@ -4,6 +4,7 @@ const fs = require('fs')
 const crypto = require('crypto')
 const HtmlDiff = require('htmldiff-js')
 const { Md2Html } = require('specpress/lib/md2html/md2html')
+const { buildFrontPageHtml } = require('specpress/lib/md2html/frontPage')
 const { collectFiles, concatenateFiles } = require('specpress/lib/common/specProcessor')
 const { insertOmittedMarkers } = require('./helpers')
 const { getFileFromCommit, collectFilesFromCommit } = require('specpress/lib/common/gitHelpers')
@@ -113,8 +114,8 @@ class PreviewManager {
   initHandler() {
     this.state.handler = new Md2Html({
       css: this.config.loadCss(this.extensionDir),
-      mermaidConfig: this.config.loadMermaidConfig(this.extensionDir),
-      coverPageHtml: this.config.loadCoverPage(),
+      mermaidConfig: this.config.loadMermaidConfig(),
+      frontPageHtml: buildFrontPageHtml(this.config.loadFrontPageData() || {}),
       customRenderers: this.config.customRenderers,
       resolveImageUri: (absPath) => this.state.panel ? this.state.panel.webview.asWebviewUri(vscode.Uri.file(absPath)).toString() : absPath,
       extraHeadContent: scrollSyncScript
@@ -134,7 +135,7 @@ class PreviewManager {
    * @param {string} content - Current markdown content (for baseline rendering).
    * @param {string} filePath - Source file path (for single-file mode).
    * @param {string[]} [files] - All files (for multi-file mode).
-   * @param {Object} renderOpts - { baseDir, specRoot, filePath, includeCoverPage } for rendering baseline.
+   * @param {Object} renderOpts - { baseDir, specRoot, filePath, includeFrontPage } for rendering baseline.
    * @returns {string} HTML with tracked changes, or original HTML if tracking disabled.
    */
   applyDiff(currentHtml, content, filePath, files, renderOpts) {
@@ -203,21 +204,21 @@ class PreviewManager {
     // Uses forPreview=false (no data-source-line attributes) since this is
     // only used for diffing, not for scroll sync or navigation.
     this.ensureHandler()
-    const includeCover = !!renderOpts.includeCoverPage
-    let savedCoverHtml = null
-    if (includeCover) {
-      savedCoverHtml = state.handler.coverPageHtml
-      const baselineCover = this._buildBaselineCoverPage(state, normPath)
-      state.handler.coverPageHtml = baselineCover !== null ? baselineCover : savedCoverHtml
+    const includeFrontPage = !!renderOpts.includeFrontPage
+    let savedFrontHtml = null
+    if (includeFrontPage) {
+      savedFrontHtml = state.handler.frontPageHtml
+      const baselineFront = this._buildBaselineFrontPage(state, normPath)
+      state.handler.frontPageHtml = baselineFront !== null ? baselineFront : savedFrontHtml
     }
     const baselineBody = state.handler.renderBody(
       baselineContent, false,
       renderOpts.baseDir || null,
       renderOpts.filePath || null,
       renderOpts.specRoot || null,
-      includeCover
+      includeFrontPage
     )
-    if (savedCoverHtml !== null) state.handler.coverPageHtml = savedCoverHtml
+    if (savedFrontHtml !== null) state.handler.frontPageHtml = savedFrontHtml
 
     // -- Step 4: Replace images and mermaid blocks with stable placeholders --
     // htmldiff-js works on text tokens. Binary content (images) and complex
@@ -352,11 +353,11 @@ class PreviewManager {
   }
 
   /**
-   * Builds cover page HTML from the baseline cache's cover_data.json.
-   * @returns {string|null} Rendered cover page HTML, or null if not available.
+   * Builds front page HTML from the baseline cache's front page data JSON.
+   * @returns {string|null} Rendered front page HTML, or null if not available.
    */
-  _buildBaselineCoverPage(state, normPath) {
-    const dataFile = this.config.coverPageData
+  _buildBaselineFrontPage(state, normPath) {
+    const dataFile = this.config.frontPageData
     if (!dataFile) return null
 
     const targetName = normPath(path.basename(dataFile))
@@ -370,36 +371,7 @@ class PreviewManager {
     if (!baselineDataJson) return null
 
     try {
-      const data = JSON.parse(baselineDataJson)
-      if (!data.YEAR && data.DATE) data.YEAR = data.DATE.split('-')[0] || ''
-
-      const templateFile = this.config.coverPageTemplate
-      if (!templateFile) return null
-      const wsRoot = this.config.wsRoot
-      const templatePath = path.isAbsolute(templateFile) ? templateFile : path.join(wsRoot, templateFile)
-      if (!fs.existsSync(templatePath)) return null
-
-      let template = fs.readFileSync(templatePath, 'utf8')
-      const bodyMatch = template.match(/<body[^>]*>([\s\S]*)<\/body>/i)
-      if (bodyMatch) {
-        const styles = []
-        const styleRe = /<style[^>]*>[\s\S]*?<\/style>/gi
-        let m
-        while ((m = styleRe.exec(template)) !== null) styles.push(m[0])
-        template = (styles.length ? styles.join('\n') + '\n' : '') + bodyMatch[1]
-      }
-
-      let result = template.replace(/\{\{(\w+)\}\}/g, (match, key) => data[key] !== undefined ? data[key] : match)
-
-      const templateDir = path.dirname(templatePath)
-      result = result.replace(/<img([^>]*?)src="([^"]+)"([^>]*?)>/g, (match, before, src, after) => {
-        if (src.startsWith('http') || src.startsWith('data:') || path.isAbsolute(src)) return match
-        const absPath = path.join(templateDir, src)
-        if (fs.existsSync(absPath)) return `<img${before}src="${absPath.replace(/\\/g, '/')}"${after}>`
-        return match
-      })
-
-      return result
+      return buildFrontPageHtml(JSON.parse(baselineDataJson))
     } catch (e) {
       return null
     }
@@ -569,7 +541,7 @@ class PreviewManager {
       const filePaths = files.filter(f => f.endsWith('.md') || f.endsWith('.markdown'))
 
       this.ensureHandler()
-      if (state.isSpecRootPreview) state.handler.coverPageHtml = this.config.loadCoverPage()
+      if (state.isSpecRootPreview) state.handler.frontPageHtml = buildFrontPageHtml(this.config.loadFrontPageData() || {})
 
       const specRoot = files.length > 0 ? config.getSpecRootForFile(files[0]) : ''
       const readFile = commitRef ? (f) => getFileFromCommit(commitRef.repoRoot, f, commitRef.commit) : undefined
@@ -600,7 +572,7 @@ class PreviewManager {
 
       state.panel.title = commitRef ? `Preview (${commitRef.shortHash})` : (state.changeTrackingCommit ? 'Preview (changes)' : 'Multiple Files Preview')
       let html = state.handler.renderMarkdown(processedContent, baseDir, null, specRoot, state.isSpecRootPreview)
-      html = this.applyDiff(html, processedContent, null, files, { baseDir, specRoot, includeCoverPage: state.isSpecRootPreview })
+      html = this.applyDiff(html, processedContent, null, files, { baseDir, specRoot, includeFrontPage: state.isSpecRootPreview })
       state.panel.webview.html = html
     }
 
@@ -616,14 +588,14 @@ class PreviewManager {
         if (!state.panel || !state.isMultiFilePreview) return
         if (doc.fileName.endsWith('.json')) {
           this.ensureHandler()
-          state.handler.coverPageHtml = this.config.loadCoverPage()
+          state.handler.frontPageHtml = buildFrontPageHtml(this.config.loadFrontPageData() || {})
           const specRoot = state.multiFileAllFiles && state.multiFileAllFiles.length > 0
             ? this.config.getSpecRootForFile(state.multiFileAllFiles[0]) : ''
           const baseDir = this.config.wsRoot || state.multiFileBaseDir
           const content = state.multiFileContent
           if (!content) return
           let html = state.handler.renderMarkdown(content, baseDir, null, specRoot, state.isSpecRootPreview)
-          html = this.applyDiff(html, content, null, state.multiFileAllFiles, { baseDir, specRoot, includeCoverPage: state.isSpecRootPreview })
+          html = this.applyDiff(html, content, null, state.multiFileAllFiles, { baseDir, specRoot, includeFrontPage: state.isSpecRootPreview })
           state.panel.webview.html = html
         }
       })

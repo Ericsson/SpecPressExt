@@ -157,13 +157,8 @@ async function compareDocx(state, config, context, uri, allUris) {
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: 'Generating DOCX files for comparison...', cancellable: false },
       async (progress) => {
-        const mermaidConfig = config.loadMermaidConfig(path.join(__dirname, '../..'))
+        const mermaidConfig = config.loadMermaidConfig()
         const mermaidBundlePath = await ensureMermaidBundle(context.globalStorageUri.fsPath)
-        let mermaidConfigPath = null
-        if (mermaidConfig !== '{}') {
-          mermaidConfigPath = path.join(tmpDir, `.~mermaid_${ts}.json`)
-          fs.writeFileSync(mermaidConfigPath, mermaidConfig)
-        }
 
         const specRoot = filesFromCommit.length > 0 ? config.getSpecRootForFile(filesFromCommit[0])
           : filesRevised.length > 0 ? config.getSpecRootForFile(filesRevised[0]) : ''
@@ -189,7 +184,7 @@ async function compareDocx(state, config, context, uri, allUris) {
           const tempMdOrig = path.join(tmpDir, `.~compare_orig_${ts}.md`)
           fs.writeFileSync(tempMdOrig, contentCommit)
           try {
-            const converter = new MarkdownToDocxConverter(mermaidConfigPath, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot), fileResolver, { updateFields: false })
+            const converter = new MarkdownToDocxConverter(mermaidConfig, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot), fileResolver, { updateFields: false })
             await converter.convert(tempMdOrig, originalDocx, path.dirname(filesFromCommit[0]))
           } finally {
             if (fs.existsSync(tempMdOrig)) fs.unlinkSync(tempMdOrig)
@@ -217,14 +212,12 @@ async function compareDocx(state, config, context, uri, allUris) {
           const tempMdRev = path.join(tmpDir, `.~compare_rev_${ts}.md`)
           fs.writeFileSync(tempMdRev, contentRevised)
           try {
-            const converter = new MarkdownToDocxConverter(mermaidConfigPath, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot), fileResolver, { updateFields: false })
+            const converter = new MarkdownToDocxConverter(mermaidConfig, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot), fileResolver, { updateFields: false })
             await converter.convert(tempMdRev, revisedDocx, path.dirname(filesRevised[0]))
           } finally {
             if (fs.existsSync(tempMdRev)) fs.unlinkSync(tempMdRev)
           }
         }
-
-        if (mermaidConfigPath && fs.existsSync(mermaidConfigPath)) fs.unlinkSync(mermaidConfigPath)
 
         // Launch Word comparison via VBS script
         progress.report({ message: 'Opening Word comparison...' })
