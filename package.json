@@ -23,7 +23,8 @@
   "scripts": {
     "test": "node scripts/run-tests.js",
     "test:quick": "node scripts/run-tests.js --quick",
-    "test:integration": "node test/integration/run.js"
+    "test:integration": "node test/integration/run.js",
+    "release": "node scripts/release.js"
   },
   "contributes": {
     "customEditors": [
