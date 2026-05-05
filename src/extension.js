@@ -98,6 +98,7 @@ function activate(context) {
       }
 
       await previewMgr.previewMultiple(uris, commitRef)
+      state.autoPreviewActive = true
     }),
 
     vscode.commands.registerCommand('specpress.exportSelectedAsDocx', async (uri, allUris) => {
@@ -138,6 +139,8 @@ function activate(context) {
           const pos = new vscode.Position(line, 0)
           editor.selection = new vscode.Selection(pos, pos)
           editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter)
+          state.autoPreviewActive = true
+          previewMgr.setupPreview(editor)
         })
       })
     }),
