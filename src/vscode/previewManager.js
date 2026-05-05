@@ -225,7 +225,8 @@ class PreviewManager {
     const replaceBlocks = (html, version) => {
       // Replace mermaid pre blocks
       html = html.replace(/<pre class="mermaid"[^>]*>[\s\S]*?<\/pre>/g, (match) => {
-        const hash = hashContent(match)
+        const source = match.replace(/<pre[^>]*>/, '').replace(/<\/pre>/, '').trim().replace(/\r\n/g, '\n')
+        const hash = hashContent(source)
         const id = `MERMAID_${hash}`
         if (!placeholders.has(id)) placeholders.set(id, {})
         placeholders.get(id)[version] = match
@@ -243,7 +244,11 @@ class PreviewManager {
         if (version === 'current') {
           try {
             let imgPath = ''
-            if (path.isAbsolute(decodedSrc)) {
+            if (decodedSrc.includes('.vscode-resource.')) {
+              // Extract filesystem path from webview URI
+              const urlPath = decodedSrc.replace(/^https?:\/\/[^/]+\//, '')
+              imgPath = decodeURIComponent(urlPath)
+            } else if (path.isAbsolute(decodedSrc)) {
               imgPath = decodedSrc
             } else {
               imgPath = path.join(renderOpts.baseDir || '', decodedSrc)
@@ -310,7 +315,7 @@ class PreviewManager {
           if (!oldImg) oldImg = currentImg
           return `<div class="diff-del-block"><p class="diff-label">Old image:</p>${oldImg}</div><div class="diff-ins-block"><p class="diff-label">New image:</p>${currentImg}</div>`
         }
-        if (id.startsWith('MERMAID_') && entry.baseline && entry.current && entry.baseline !== entry.current) {
+        if (id.startsWith('MERMAID_') && entry.baseline && entry.current && entry.baseline.replace(/<pre[^>]*>/, '').replace(/<\/pre>/, '').trim().replace(/\r\n/g, '\n') !== entry.current.replace(/<pre[^>]*>/, '').replace(/<\/pre>/, '').trim().replace(/\r\n/g, '\n')) {
           return `<div class="diff-del-block"><p class="diff-label">Deleted figure:</p>${entry.baseline}</div><div class="diff-ins-block"><p class="diff-label">New figure:</p>${entry.current}</div>`
         }
         return entry.current || entry.baseline || ` ${id} `
