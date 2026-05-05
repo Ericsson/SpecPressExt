@@ -12,8 +12,10 @@ function findTests(dir) {
   const results = []
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name)
-    if (entry.isDirectory()) results.push(...findTests(full))
-    else if (entry.name.endsWith('.test.js')) results.push(full)
+    if (entry.isDirectory()) {
+      if (entry.name === 'integration') continue
+      results.push(...findTests(full))
+    } else if (entry.name.endsWith('.test.js')) results.push(full)
   }
   return results.sort()
 }

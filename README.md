@@ -228,7 +228,16 @@ To work on both repos simultaneously (extension + specpress library), clone `spe
 co-develop.cmd
 ```
 
-This links your local specpress via `npm link`. Press F5 to launch the Extension Development Host with both local codebases active.
+This creates a junction from `node_modules/specpress` to your local specpress repo. Press F5 to launch the Extension Development Host with both local codebases active.
+
+The recommended development workflow:
+
+1. `co-develop.cmd` — links local specpress (run once, or after `npm install`/`build.cmd`)
+2. `npm test` — runs unit tests against the local specpress
+3. Press F5 — manual testing in the Extension Development Host
+4. `build.cmd` — clean build for release (installs specpress from npm, breaks the junction)
+
+Note: `build.cmd` safely removes the junction before cleaning `node_modules`, so it will not delete your local specpress repo. After building, run `co-develop.cmd` again to restore the junction for continued development.
 
 ### 1.6.3 Running tests
 

@@ -22,7 +22,8 @@
   "main": "./src/extension.js",
   "scripts": {
     "test": "node scripts/run-tests.js",
-    "test:quick": "node scripts/run-tests.js --quick"
+    "test:quick": "node scripts/run-tests.js --quick",
+    "test:integration": "node test/integration/run.js"
   },
   "contributes": {
     "customEditors": [

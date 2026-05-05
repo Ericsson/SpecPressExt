@@ -9,7 +9,8 @@
         "--extensionDevelopmentPath=${workspaceFolder}",
         "${workspaceFolder}/../../3gpp/FS_6Gspecs_new/ericsson_multifiletypes_onem2m_example"
       ],
-      "outFiles": ["${workspaceFolder}/src/**/*.js"]
+      "outFiles": ["${workspaceFolder}/src/**/*.js"],
+      "preLaunchTask": "check-specpress-link"
     }
   ]
 }
