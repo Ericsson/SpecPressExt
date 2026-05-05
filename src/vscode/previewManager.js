@@ -248,9 +248,9 @@ class PreviewManager {
         placeholders.get(id)[version] = match
         return ` ${id} `
       })
-      // Images: use filename as stable ID, compute content hashes to detect
-      // actual file changes (the src URL differs between baseline and current
-      // because the current version uses webview URIs)
+      // Images: use src as stable ID (both baseline and current now produce
+      // the same webview URI for the same path). Content hashes detect binary
+      // changes where the markdown reference is unchanged but the file differs.
       html = html.replace(/<img[^>]*>/g, (match) => {
         const src = (match.match(/src="([^"]+)"/) || [])[1] || ''
         const decodedSrc = decodeURIComponent(src)
@@ -260,22 +260,16 @@ class PreviewManager {
         const entry = placeholders.get(id)
         entry[version] = match
         if (version === 'current') {
+          // Hash the current file to detect binary changes
           try {
-            let imgPath = ''
-            if (decodedSrc.includes('.vscode-resource.')) {
-              // Extract filesystem path from webview URI
-              const urlPath = decodedSrc.replace(/^https?:\/\/[^/]+\//, '')
-              imgPath = decodeURIComponent(urlPath)
-            } else if (path.isAbsolute(decodedSrc)) {
-              imgPath = decodedSrc
-            } else {
-              imgPath = path.join(renderOpts.baseDir || '', decodedSrc)
-            }
+            const urlPath = decodedSrc.replace(/^https?:\/\/[^/]+\//, '')
+            const imgPath = decodeURIComponent(urlPath)
             if (imgPath && fs.existsSync(imgPath)) {
               entry.currentHash = hashContent(fs.readFileSync(imgPath))
             }
           } catch (e) { /* no hash */ }
         } else {
+          // Hash the baseline file from the git cache
           for (const [key, val] of state.changeTrackingBaseline) {
             if (normPath(key).endsWith('/' + normPath(filename))) {
               entry.baselineHash = hashContent(Buffer.isBuffer(val) ? val : Buffer.from(val))
