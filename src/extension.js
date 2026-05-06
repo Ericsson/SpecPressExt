@@ -266,6 +266,23 @@ function activate(context) {
       }
     })
   )
+
+  // Re-initialize handler when config-referenced files are saved
+  context.subscriptions.push(
+    vscode.workspace.onDidSaveTextDocument(doc => {
+      const wsRoot = config.wsRoot
+      if (!wsRoot) return
+      const saved = doc.uri.fsPath
+      const configFiles = ['cssFile', 'mermaidConfigFile', 'frontPageData', 'coverPageData']
+        .map(key => config.raw.get(key, ''))
+        .filter(f => f)
+        .map(f => path.isAbsolute(f) ? f : path.join(wsRoot, f))
+      if (configFiles.some(f => path.resolve(f) === path.resolve(saved))) {
+        config.invalidate()
+        state.handler = null
+      }
+    })
+  )
 }
 
 function deactivate() {}
