@@ -576,11 +576,20 @@ class PreviewManager {
       async () => buildPreview()
     )
 
-    // Re-render multi-file preview when JSON files are saved
+    // Re-render multi-file preview when spec files are saved
     if (!commitRef) {
       state.fileSaveListener = vscode.workspace.onDidSaveTextDocument(doc => {
         if (!state.panel || !state.isMultiFilePreview) return
-        if (doc.fileName.endsWith('.json')) {
+        const ext = path.extname(doc.fileName).toLowerCase()
+        const isSpecFile = ['.md', '.markdown', '.asn', '.json'].includes(ext)
+        if (!isSpecFile) return
+        if (!config.isInsideSpecRoot(doc.uri.fsPath)) return
+
+        // For MD/ASN changes, re-collect and re-concatenate files
+        if (ext !== '.json') {
+          buildPreview()
+        } else {
+          // For JSON changes, just re-render (JsonTable content read at render time)
           this.ensureHandler()
           state.handler.frontPageHtml = buildFrontPageHtml(this.config.loadFrontPageData() || {})
           const specRoot = state.multiFileAllFiles && state.multiFileAllFiles.length > 0
