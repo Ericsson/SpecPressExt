@@ -5,6 +5,12 @@
       "label": "check-specpress-link",
       "type": "shell",
       "command": "node -e \"const fs=require('fs');const p='node_modules/specpress';if(!fs.existsSync(p)){console.error('ERROR: node_modules/specpress not found. Run: npm install');process.exit(1)}const s=fs.lstatSync(p);if(!s.isSymbolicLink()&&!fs.existsSync(p+'/lib/md2docx/md2docx.js')){console.error('ERROR: specpress appears broken.');process.exit(1)}const c=fs.readFileSync(p+'/lib/md2docx/md2docx.js','utf8');if(!c.includes('fileResolver')){console.warn('WARNING: node_modules/specpress is the npm version, not your local repo.');console.warn('Run co-develop.cmd to link your local specpress for development.')}else{console.log('OK: local specpress is linked.')}\"",
+      "options": {
+        "shell": {
+          "executable": "cmd.exe",
+          "args": ["/C"]
+        }
+      },
       "problemMatcher": []
     }
   ]

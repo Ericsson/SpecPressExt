@@ -14,8 +14,6 @@ class ConfigLoader {
     this._css = null
     /** @type {string|null} */
     this._mermaidConfig = null
-    /** @type {string|null} */
-    this._coverPageHtml = null
     /** @type {string[]|null} */
     this._specRoots = null
   }
@@ -24,7 +22,6 @@ class ConfigLoader {
   invalidate() {
     this._css = null
     this._mermaidConfig = null
-    this._coverPageHtml = null
     this._specRoots = null
   }
 
@@ -48,14 +45,9 @@ class ConfigLoader {
     return this.raw.get('deriveSectionNumbers', false)
   }
 
-  /** @returns {string} Cover page template path (raw config value). */
-  get coverPageTemplate() {
-    return this.raw.get('coverPageTemplate', '')
-  }
-
-  /** @returns {string} Cover page data path (raw config value). */
-  get coverPageData() {
-    return this.raw.get('coverPageData', '')
+  /** @returns {string} Front page data path (raw config value). */
+  get frontPageData() {
+    return this.raw.get('frontPageData', '') || this.raw.get('coverPageData', '')
   }
 
   /** @returns {string} Multi-page preview default path (raw config value). */
@@ -64,7 +56,7 @@ class ConfigLoader {
   }
 
   /**
-   * Loads CSS content from workspace configuration or extension defaults.
+   * Loads CSS content from workspace configuration or specpress defaults.
    * Appends the extension's diff.css for change tracking styling.
    * @param {string} extensionDir - Absolute path to the extension root directory.
    * @returns {string} CSS content.
@@ -82,15 +74,7 @@ class ConfigLoader {
     }
 
     if (!baseCss) {
-      const defaultCssPath = path.join(extensionDir, 'node_modules/specpress/lib/css/3gpp.css')
-      if (fs.existsSync(defaultCssPath)) {
-        baseCss = fs.readFileSync(defaultCssPath, 'utf8')
-      } else {
-        baseCss = `body{font-family:Arial,sans-serif;padding:20px;max-width:900px;margin:0 auto}
-table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:8px}
-code{background:#f4f4f4;padding:2px 6px;border-radius:3px}
-pre{background:#f4f4f4;padding:10px;overflow-x:auto}pre code{background:none;padding:0}`
-      }
+      baseCss = fs.readFileSync(require.resolve('specpress/lib/css/3gpp.css'), 'utf8')
     }
 
     // Append diff CSS (inert unless change tracking injects <ins>/<del> markup)
@@ -104,11 +88,10 @@ pre{background:#f4f4f4;padding:10px;overflow-x:auto}pre code{background:none;pad
   }
 
   /**
-   * Loads mermaid configuration from workspace settings or extension defaults.
-   * @param {string} extensionDir - Absolute path to the extension root directory.
+   * Loads mermaid configuration from workspace settings or specpress defaults.
    * @returns {string} Mermaid config JSON string.
    */
-  loadMermaidConfig(extensionDir) {
+  loadMermaidConfig() {
     if (this._mermaidConfig !== null) return this._mermaidConfig
     const mermaidConfigFile = this.raw.get('mermaidConfigFile', '')
 
@@ -120,76 +103,30 @@ pre{background:#f4f4f4;padding:10px;overflow-x:auto}pre code{background:none;pad
       }
     }
 
-    const defaultMermaidPath = path.join(extensionDir, 'node_modules/specpress/lib/css/mermaid-config.json')
-    if (fs.existsSync(defaultMermaidPath)) {
-      this._mermaidConfig = fs.readFileSync(defaultMermaidPath, 'utf8')
-      return this._mermaidConfig
-    }
-
-    this._mermaidConfig = '{}'
+    this._mermaidConfig = fs.readFileSync(require.resolve('specpress/lib/css/mermaid-config.json'), 'utf8')
     return this._mermaidConfig
   }
 
   /**
-   * Loads and renders the cover page HTML from configured template and data files.
-   * @returns {string} Rendered cover page HTML, or empty string.
+   * Loads and parses the front page data JSON file.
+   * @returns {Object|null} Parsed front page data, or null if not configured/found.
    */
-  loadCoverPage() {
-    if (this._coverPageHtml !== null) return this._coverPageHtml
-    const templateFile = this.coverPageTemplate
-    const dataFile = this.coverPageData
-    if (!templateFile || !dataFile || !this.wsRoot) {
-      this._coverPageHtml = ''
-      return this._coverPageHtml
-    }
+  loadFrontPageData() {
+    const dataFile = this.frontPageData
+    if (!dataFile || !this.wsRoot) return null
 
-    const templatePath = path.isAbsolute(templateFile) ? templateFile : path.join(this.wsRoot, templateFile)
     const dataPath = path.isAbsolute(dataFile) ? dataFile : path.join(this.wsRoot, dataFile)
-
-    if (!fs.existsSync(templatePath)) {
-      vscode.window.showWarningMessage(`SpecPress: Cover page template not found: ${templateFile}`)
-      this._coverPageHtml = ''
-      return this._coverPageHtml
-    }
     if (!fs.existsSync(dataPath)) {
-      vscode.window.showWarningMessage(`SpecPress: Cover page data file not found: ${dataFile}`)
-      this._coverPageHtml = ''
-      return this._coverPageHtml
+      vscode.window.showWarningMessage(`SpecPress: Front page data file not found: ${dataFile}`)
+      return null
     }
 
     try {
-      let template = fs.readFileSync(templatePath, 'utf8')
-      const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'))
-
-      const bodyMatch = template.match(/<body[^>]*>([\s\S]*)<\/body>/i)
-      if (bodyMatch) {
-        const styles = []
-        const styleRe = /<style[^>]*>[\s\S]*?<\/style>/gi
-        let m
-        while ((m = styleRe.exec(template)) !== null) styles.push(m[0])
-        template = (styles.length ? styles.join('\n') + '\n' : '') + bodyMatch[1]
-      }
-
-      if (!data.YEAR && data.DATE) {
-        data.YEAR = data.DATE.split('-')[0] || ''
-      }
-
-      let result = template.replace(/\{\{(\w+)\}\}/g, (match, key) => data[key] !== undefined ? data[key] : match)
-
-      const templateDir = path.dirname(templatePath)
-      result = result.replace(/<img([^>]*?)src="([^"]+)"([^>]*?)>/g, (match, before, src, after) => {
-        if (src.startsWith('http') || src.startsWith('data:') || path.isAbsolute(src)) return match
-        const absPath = path.join(templateDir, src)
-        if (fs.existsSync(absPath)) return `<img${before}src="${absPath.replace(/\\/g, '/')}"${after}>`
-        return match
-      })
-
-      this._coverPageHtml = result
+      return JSON.parse(fs.readFileSync(dataPath, 'utf8'))
     } catch (e) {
-      vscode.window.showWarningMessage(`SpecPress: Failed to load cover page: ${e.message}`)
-      this._coverPageHtml = ''
+      vscode.window.showWarningMessage(`SpecPress: Failed to load front page data: ${e.message}`)
+      return null
     }
-    return this._coverPageHtml
   }
 
   /**

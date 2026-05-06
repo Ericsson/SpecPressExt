@@ -6,7 +6,7 @@ const { getRepoRoot, getFileFromCommit } = require('specpress/lib/common/gitHelp
 const { collectFiles, concatenateFiles, formatExportMessage } = require('specpress/lib/common/specProcessor')
 const { MarkdownToDocxConverter } = require('specpress/lib/md2docx/md2docx')
 const { ensureMermaidBundle } = require('specpress/lib/md2docx/handlers/mermaidHandler')
-const { buildCoverSections } = require('specpress/lib/md2docx/coverPage')
+const { buildFrontPageDocx } = require('specpress/lib/md2docx/frontPage')
 const { pickCommit, collectFilesFromUris, collectFilesFromCommitUris, insertOmittedMarkers, makeMermaidRenderer, formatExportTimestamp, showExportNotification } = require('./helpers')
 
 /**
@@ -96,39 +96,25 @@ async function exportDocx(state, config, context, uri, allUris) {
         fs.writeFileSync(tempMd, content)
 
         try {
-          const mermaidConfig = config.loadMermaidConfig(path.join(__dirname, '../..'))
+          const mermaidConfig = config.loadMermaidConfig()
           const mermaidBundlePath = await ensureMermaidBundle(context.globalStorageUri.fsPath)
-          let mermaidConfigPath = null
-          if (mermaidConfig !== '{}') {
-            mermaidConfigPath = path.join(tmpDir, `.~mermaid_${timestamp}.json`)
-            fs.writeFileSync(mermaidConfigPath, mermaidConfig)
-          }
 
-          const converter = new MarkdownToDocxConverter(mermaidConfigPath, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot))
+          const converter = new MarkdownToDocxConverter(mermaidConfig, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot))
 
-          let coverSections = null
+          let frontPage = null
           if (config.isSpecRootSelection(uris)) {
-            const dataFile = config.coverPageData
-            if (dataFile) {
-              const wsRoot = config.wsRoot
-              const datPath = path.isAbsolute(dataFile) ? dataFile : path.join(wsRoot, dataFile)
-              if (fs.existsSync(datPath)) {
-                try {
-                  const data = JSON.parse(fs.readFileSync(datPath, 'utf8'))
-                  const tplFile = config.coverPageTemplate
-                  const assetsDir = tplFile ? path.dirname(path.isAbsolute(tplFile) ? tplFile : path.join(wsRoot, tplFile)) : ''
-                  coverSections = buildCoverSections(data, assetsDir)
-                } catch (e) {
-                  vscode.window.showWarningMessage(`Cover page failed: ${e.message}`)
-                }
+            const data = config.loadFrontPageData()
+            if (data) {
+              try {
+                frontPage = buildFrontPageDocx(data)
+              } catch (e) {
+                vscode.window.showWarningMessage(`Front page failed: ${e.message}`)
               }
             }
           }
 
-          await converter.convert(tempMd, outputPath, path.dirname(files[0]), coverSections)
+          await converter.convert(tempMd, outputPath, path.dirname(files[0]), frontPage)
           imageCount = converter.imageCount
-
-          if (mermaidConfigPath && fs.existsSync(mermaidConfigPath)) fs.unlinkSync(mermaidConfigPath)
         } finally {
           if (fs.existsSync(tempMd)) fs.unlinkSync(tempMd)
         }

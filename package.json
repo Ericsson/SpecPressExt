@@ -192,15 +192,16 @@
           "default": false,
           "description": "If set to true, section numbers are derived from leading numbers in folder- and file names and injected into the heading rows."
         },
-        "specpress.coverPageTemplate": {
+        "specpress.frontPageData": {
           "type": "string",
           "default": "",
-          "description": "Path to an HTML cover page template file relative to workspace root. Placeholders like {{KEY}} are replaced with values from the cover page data file."
+          "description": "Path to a JSON file with front page placeholder values relative to workspace root."
         },
         "specpress.coverPageData": {
           "type": "string",
           "default": "",
-          "description": "Path to a JSON file with cover page placeholder values relative to workspace root."
+          "description": "Deprecated. Use specpress.frontPageData instead.",
+          "deprecationMessage": "Use specpress.frontPageData instead."
         },
         "specpress.defaultExportFolder": {
           "type": "string",
@@ -219,6 +220,6 @@
   },
   "dependencies": {
     "htmldiff-js": "^1.0.5",
-    "specpress": "^3.0.7"
+    "specpress": "^3.1.0"
   }
 }
