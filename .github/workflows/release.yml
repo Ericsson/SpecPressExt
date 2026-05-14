@@ -39,6 +39,9 @@ jobs:
         with:
           files: '*.vsix'
 
+      - name: Publish to Open VSX
+        run: npx ovsx publish *.vsix -p ${{ secrets.OVSX_TOKEN }}
+
       - name: Commit updated version to main
         run: |
           git config user.name "github-actions[bot]"
