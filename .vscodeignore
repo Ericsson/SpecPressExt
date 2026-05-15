@@ -8,6 +8,10 @@ co-develop.cmd
 
 *.vsix
 
+# Images are loaded from GitHub via absolute URLs in README; only logo.png is needed
+images/
+!images/logo.png
+
 # Node modules: exclude TypeScript types, docs, tests, source maps
 node_modules/@types/
 node_modules/**/test/
