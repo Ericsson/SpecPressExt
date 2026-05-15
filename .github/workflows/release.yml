@@ -32,6 +32,7 @@ jobs:
       - name: Package VSIX
         run: |
           npm prune --omit=dev --omit=optional
+          sed -i 's|](images/|](https://raw.githubusercontent.com/Ericsson/SpecPressExt/main/images/|g' README.md
           npx @vscode/vsce package --no-rewrite-relative-links --allow-missing-repository
 
       - name: Upload VSIX to Release

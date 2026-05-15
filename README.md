@@ -104,7 +104,7 @@ The following settings can be configured in VS-Code's workspace or user settings
 
 After installing and configuring the extension, open a markdown- or ASN.1 file within your `specificationRootPath` in the VSC editor. Right-click into the editor to open the context menu and choose `SpecPress: Open Preview`. The SpecPress extension opens a live preview, updates it as you edit your source file and scrolls accordingly.
 
-![Live preview of markdown files](images/01_using_live_preview.png)
+![Live preview of markdown files](https://raw.githubusercontent.com/Ericsson/SpecPressExt/main/images/01_using_live_preview.png)
 
 Figure 1.5.1-1: Live preview of markdown files
 
@@ -120,7 +120,7 @@ To preview a rendered version of some or all source files, select the files and/
 
 SpecPress asks for the version that you would like to preview. Press *ENTER* to see the current version of the local files. Alternatively, choose a Git commit from the drop-down menu or by pasting a hash.
 
-![Context menu multi-file operation](images/02_context_menue_multi-file.png)
+![Context menu multi-file operation](https://raw.githubusercontent.com/Ericsson/SpecPressExt/main/images/02_context_menue_multi-file.png)
 
 Figure 1.5.2-1: Context menu multi-file operation
 
@@ -132,7 +132,7 @@ Beyond regular markdown files SpecPress also comprehends *asn* files. If a live 
 
 In the multi-page preview, SpecPress extracts leading comment lines (if any) and the module name from the *asn* file and creates a delimiting section heading for this ASN.1 module as well as a descriptive paragraph prior to the actual ASN.1 code.
 
-![Live preview of ASN.1 files](images/03_live_preview_of_asn1.png)
+![Live preview of ASN.1 files](https://raw.githubusercontent.com/Ericsson/SpecPressExt/main/images/03_live_preview_of_asn1.png)
 
 Figure 1.5.3-1: Live preview of ASN.1 files
 
@@ -156,7 +156,7 @@ To export a DOCX version, select one or more files and/or folders in the VS-Code
 
 When exporting at the spec root level (i.e. the folder configured in `specpress.specificationRootPath`), a cover page is automatically included if `specpress.coverPageTemplate` and `specpress.coverPageData` are configured.
 
-![DOCX file in MS-Word](images/06_docx_file_in_MS-Word.png)
+![DOCX file in MS-Word](https://raw.githubusercontent.com/Ericsson/SpecPressExt/main/images/06_docx_file_in_MS-Word.png)
 
 Figure 1.5.5-1: A DOCX file exported by the SpecPress extension and opened in MS-Word
 
@@ -196,7 +196,7 @@ The specpress library performs extensive 3GPP-style rendering of markdown conten
 
 For full documentation of the rendering rules, see the [specpress README](https://github.com/Ericsson/specpress#3gpp-style-rendering).
 
-![Example of a JsonTable in VS Code](images/05_example_of_JsonTable_in_vscode.png)
+![Example of a JsonTable in VS Code](https://raw.githubusercontent.com/Ericsson/SpecPressExt/main/images/05_example_of_JsonTable_in_vscode.png)
 
 Figure 1.5.8-1: Screenshot of a JsonTable in VS-Code
 
