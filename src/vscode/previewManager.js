@@ -115,7 +115,7 @@ class PreviewManager {
     this.state.handler = new Md2Html({
       css: this.config.loadCss(this.extensionDir),
       mermaidConfig: this.config.loadMermaidConfig(),
-      frontPageHtml: buildFrontPageHtml(this.config.loadFrontPageData() || {}),
+      frontPageHtml: buildFrontPageHtml(this.config.loadFrontPageData()),
       customRenderers: this.config.customRenderers,
       resolveImageUri: (absPath) => this.state.panel ? this.state.panel.webview.asWebviewUri(vscode.Uri.file(absPath)).toString() : absPath,
       extraHeadContent: scrollSyncScript
@@ -535,7 +535,7 @@ class PreviewManager {
       const filePaths = files.filter(f => f.endsWith('.md') || f.endsWith('.markdown'))
 
       this.ensureHandler()
-      if (state.isSpecRootPreview) state.handler.frontPageHtml = buildFrontPageHtml(this.config.loadFrontPageData() || {})
+      if (state.isSpecRootPreview) state.handler.frontPageHtml = buildFrontPageHtml(this.config.loadFrontPageData())
 
       const specRoot = files.length > 0 ? config.getSpecRootForFile(files[0]) : ''
       const readFile = commitRef ? (f) => getFileFromCommit(commitRef.repoRoot, f, commitRef.commit) : undefined
@@ -591,7 +591,7 @@ class PreviewManager {
         } else {
           // For JSON changes, just re-render (JsonTable content read at render time)
           this.ensureHandler()
-          state.handler.frontPageHtml = buildFrontPageHtml(this.config.loadFrontPageData() || {})
+          state.handler.frontPageHtml = buildFrontPageHtml(this.config.loadFrontPageData())
           const specRoot = state.multiFileAllFiles && state.multiFileAllFiles.length > 0
             ? this.config.getSpecRootForFile(state.multiFileAllFiles[0]) : ''
           const baseDir = this.config.wsRoot || state.multiFileBaseDir
