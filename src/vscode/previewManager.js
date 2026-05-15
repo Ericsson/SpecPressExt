@@ -283,7 +283,23 @@ class PreviewManager {
     }
 
     const processedBaseline = replaceBlocks(baselineBody, 'baseline')
-    const processedCurrent = replaceBlocks(currentBody, 'current')
+    let processedCurrent = replaceBlocks(currentBody, 'current')
+    // Strip data-source-line/file attributes so both sides have the same
+    // structure for diffing (baseline is rendered without preview annotations).
+    // Unwrap ASN.1 per-line <span data-source-line="N"> wrappers inside <pre class="asn">.
+    // Preview renders each line as: <span data-source-line="N">CONTENT</span>\n
+    // Baseline (forPreview=false) renders as: CONTENT\n
+    // Must run before general attribute stripping to match the data-source-line attribute.
+    processedCurrent = processedCurrent.replace(/(<pre class="asn"[^>]*><code>)([\s\S]*?)(<\/code><\/pre>)/g, (match, open, content, close) => {
+      const fixed = content
+        .replace(/<span data-source-line="[^"]*"(?:\s+data-source-file="[^"]*")?>/g, '')
+        .replace(/<\/span>\n/g, '\n')
+        .replace(/<\/span>$/, '')
+      return open + fixed + close
+    })
+    // Strip remaining data-source-line/file attributes from non-ASN elements
+    processedCurrent = processedCurrent.replace(/ data-source-line="[^"]*"/g, '')
+    processedCurrent = processedCurrent.replace(/ data-source-file="[^"]*"/g, '')
 
     // -- Step 5: Run word-level HTML diff on the placeholder-substituted text --
     let diffedBody = HtmlDiff.default.execute(processedBaseline, processedCurrent)
