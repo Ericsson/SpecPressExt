@@ -14,6 +14,7 @@ const scrollSyncScript = `<script>
 const vscode = acquireVsCodeApi();
 let isScrolling = false;
 let scrollTimeout = null;
+let lastScrollTop = 0;
 
 window.addEventListener('load', () => {
   vscode.postMessage({ type: 'webviewReady' });
@@ -24,18 +25,36 @@ window.addEventListener('scroll', () => {
 
   if (scrollTimeout) clearTimeout(scrollTimeout);
   scrollTimeout = setTimeout(() => {
+    const currentScrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    const scrollingDown = currentScrollTop > lastScrollTop;
+    lastScrollTop = currentScrollTop;
+
     const elements = document.querySelectorAll('[data-source-line]');
     let sourceLine = 0;
 
-    for (const el of elements) {
-      const rect = el.getBoundingClientRect();
-      if (rect.top >= 0) {
-        sourceLine = parseInt(el.getAttribute('data-source-line'));
-        break;
+    if (scrollingDown) {
+      // Scrolling down: find last visible element
+      const viewportBottom = window.innerHeight;
+      for (let i = elements.length - 1; i >= 0; i--) {
+        const el = elements[i];
+        const rect = el.getBoundingClientRect();
+        if (rect.top < viewportBottom) {
+          sourceLine = parseInt(el.getAttribute('data-source-line'));
+          break;
+        }
+      }
+    } else {
+      // Scrolling up: find first visible element
+      for (const el of elements) {
+        const rect = el.getBoundingClientRect();
+        if (rect.top >= 0) {
+          sourceLine = parseInt(el.getAttribute('data-source-line'));
+          break;
+        }
       }
     }
 
-    vscode.postMessage({ type: 'scroll', sourceLine });
+    vscode.postMessage({ type: 'scroll', sourceLine, scrollingDown });
   }, 50);
 });
 
@@ -73,9 +92,22 @@ window.addEventListener('message', event => {
     isScrolling = true;
     const targetElement = document.querySelector('[data-source-line="' + message.sourceLine + '"]');
     if (targetElement) {
-      targetElement.scrollIntoView({ block: 'start', behavior: 'auto' });
+      const block = message.scrollingDown ? 'end' : 'start';
+      targetElement.scrollIntoView({ block, behavior: 'auto' });
     }
     setTimeout(() => isScrolling = false, 150);
+  } else if (message.type === 'ensureVisible') {
+    // Only scroll if the target line is not already visible
+    const targetElement = document.querySelector('[data-source-line="' + message.sourceLine + '"]');
+    if (targetElement) {
+      const rect = targetElement.getBoundingClientRect();
+      const isVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
+      if (!isVisible) {
+        isScrolling = true;
+        targetElement.scrollIntoView({ block: 'center', behavior: 'auto' });
+        setTimeout(() => isScrolling = false, 150);
+      }
+    }
   } else if (message.type === 'scrollToFile') {
     const file = message.file;
     const line = message.line || 0;
@@ -401,8 +433,9 @@ class PreviewManager {
         }
       } else if (message.type === 'scroll' && state.currentEditor && !state.isMultiFilePreview && !state.isEditorScrolling && !state.lastFocusedIsEditor) {
         state.isPreviewScrolling = true
+        const revealType = message.scrollingDown ? vscode.TextEditorRevealType.AtBottom : vscode.TextEditorRevealType.AtTop
         const range = new vscode.Range(message.sourceLine, 0, message.sourceLine, 0)
-        state.currentEditor.revealRange(range, vscode.TextEditorRevealType.AtTop)
+        state.currentEditor.revealRange(range, revealType)
         setTimeout(() => state.isPreviewScrolling = false, 150)
       } else if (message.type === 'openFile') {
         const filePath = message.sourceFile || (state.currentEditor && state.currentEditor.document.uri.fsPath)
@@ -442,6 +475,8 @@ class PreviewManager {
     state.disposeListeners()
     state.currentEditor = editor
     state.isMultiFilePreview = false
+    state.lastVisibleRange = editor.visibleRanges[0] || null
+    state.lastFocusedIsEditor = false
     vscode.commands.executeCommand('setContext', 'specpress.isMultiFilePreview', false)
 
     const isNewPanel = !state.panel
@@ -470,7 +505,11 @@ class PreviewManager {
     state.panel.title = state.changeTrackingCommit ? `Preview (changes): ${path.basename(editor.document.fileName)}` : `Preview: ${path.basename(editor.document.fileName)}`
 
     if (isNewPanel) {
-      vscode.window.showTextDocument(editor.document, editor.viewColumn, false)
+      // Briefly reveal the panel to ensure it can receive scroll events, then return focus to editor
+      state.panel.reveal(vscode.ViewColumn.Beside, true)
+      setTimeout(() => {
+        vscode.window.showTextDocument(editor.document, editor.viewColumn, false)
+      }, 100)
     }
 
     state.updatePreview = vscode.workspace.onDidChangeTextDocument(e => {
@@ -484,6 +523,17 @@ class PreviewManager {
         let h = state.handler.renderMarkdown(text, bd, fp, sr)
         h = this.applyDiff(h, text, fp, null, { baseDir: bd, specRoot: sr, filePath: fp })
         state.panel.webview.html = h
+        
+        // Ensure cursor position is visible in preview (only scroll if needed)
+        // Set flag to prevent scroll sync feedback loop
+        state.isEditorScrolling = true
+        setTimeout(() => {
+          if (state.panel && state.currentEditor) {
+            const cursorLine = state.currentEditor.selection.active.line
+            state.panel.webview.postMessage({ type: 'ensureVisible', sourceLine: cursorLine })
+          }
+          setTimeout(() => state.isEditorScrolling = false, 150)
+        }, 50)
       }
     })
 
@@ -507,8 +557,25 @@ class PreviewManager {
       if (state.panel && !state.isMultiFilePreview && !state.isPreviewScrolling
         && state.currentEditor && e.textEditor.document === state.currentEditor.document) {
         state.isEditorScrolling = true
-        const firstVisibleLine = e.visibleRanges[0].start.line
-        state.panel.webview.postMessage({ type: 'scrollTo', sourceLine: firstVisibleLine })
+        
+        const visibleRange = e.visibleRanges[0]
+        const prevRange = state.lastVisibleRange
+        state.lastVisibleRange = visibleRange
+        
+        let sourceLine, scrollingDown
+        if (prevRange && visibleRange && visibleRange.start.line > prevRange.start.line) {
+          // Scrolling down: sync to last visible line (end.line is exclusive, so subtract 1)
+          sourceLine = Math.max(0, visibleRange.end.line - 1)
+          scrollingDown = true
+        } else if (visibleRange) {
+          // Scrolling up or first scroll: sync to first visible line
+          sourceLine = visibleRange.start.line
+          scrollingDown = false
+        } else {
+          return
+        }
+        
+        state.panel.webview.postMessage({ type: 'scrollTo', sourceLine, scrollingDown })
         setTimeout(() => state.isEditorScrolling = false, 150)
       }
     })

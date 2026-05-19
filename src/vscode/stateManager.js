@@ -52,6 +52,8 @@ class StateManager {
     this.changeTrackingRepoRoot = null
     /** @type {Map<string,string|Buffer>|null} Cached baseline file contents */
     this.changeTrackingBaseline = null
+    /** @type {import('vscode').Range|null} Last visible range in editor for scroll direction detection */
+    this.lastVisibleRange = null
   }
 
   /** Disposes listeners and resets preview-related state. */
