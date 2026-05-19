@@ -504,7 +504,7 @@ class PreviewManager {
     })
 
     state.scrollSync = vscode.window.onDidChangeTextEditorVisibleRanges(e => {
-      if (state.panel && !state.isMultiFilePreview && !state.isPreviewScrolling && state.lastFocusedIsEditor
+      if (state.panel && !state.isMultiFilePreview && !state.isPreviewScrolling
         && state.currentEditor && e.textEditor.document === state.currentEditor.document) {
         state.isEditorScrolling = true
         const firstVisibleLine = e.visibleRanges[0].start.line
