@@ -1,6 +1,7 @@
 const vscode = require('vscode')
 const path = require('path')
 const fs = require('fs')
+const os = require('os')
 const crypto = require('crypto')
 const HtmlDiff = require('htmldiff-js')
 const { Md2Html } = require('specpress/lib/md2html/md2html')
@@ -9,19 +10,51 @@ const { collectFiles, concatenateFiles } = require('specpress/lib/common/specPro
 const { insertOmittedMarkers } = require('./helpers')
 const { getFileFromCommit, collectFilesFromCommit } = require('specpress/lib/common/gitHelpers')
 
+const logFile = path.join(os.tmpdir(), 'specpress-debug.log')
+const log = (msg) => {
+  const timestamp = new Date().toISOString()
+  fs.appendFileSync(logFile, `${timestamp} ${msg}\n`)
+}
+log('=== SpecPress Debug Log Started ===')
+console.log('SpecPress debug log:', logFile)
+
 /** Scroll synchronization and double-click navigation script injected into the webview preview. */
 const scrollSyncScript = `<script>
 const vscode = acquireVsCodeApi();
 let isScrolling = false;
 let scrollTimeout = null;
 let lastScrollTop = 0;
+let updateCount = 0;
+let loadingPrevious = false;
 
 window.addEventListener('load', () => {
-  vscode.postMessage({ type: 'webviewReady' });
+  updateCount++;
+  // Wait for mermaid to finish rendering before measuring scroll
+  if (typeof mermaid !== 'undefined') {
+    mermaid.run().then(() => {
+      const scrollY = window.pageYOffset || document.documentElement.scrollTop;
+      const docHeight = document.documentElement.scrollHeight;
+      console.log('[LOAD #' + updateCount + '] scrollY=' + scrollY + ', docHeight=' + docHeight);
+      vscode.postMessage({ type: 'webviewReady' });
+    }).catch(() => {
+      const scrollY = window.pageYOffset || document.documentElement.scrollTop;
+      const docHeight = document.documentElement.scrollHeight;
+      console.log('[LOAD #' + updateCount + '] scrollY=' + scrollY + ', docHeight=' + docHeight);
+      vscode.postMessage({ type: 'webviewReady' });
+    });
+  } else {
+    const scrollY = window.pageYOffset || document.documentElement.scrollTop;
+    const docHeight = document.documentElement.scrollHeight;
+    console.log('[LOAD #' + updateCount + '] scrollY=' + scrollY + ', docHeight=' + docHeight);
+    vscode.postMessage({ type: 'webviewReady' });
+  }
 });
 
 window.addEventListener('scroll', () => {
   if (isScrolling) return;
+  
+  const scrollY = window.pageYOffset || document.documentElement.scrollTop;
+  console.log('[SCROLL] scrollY=' + scrollY);
 
   if (scrollTimeout) clearTimeout(scrollTimeout);
   scrollTimeout = setTimeout(() => {
@@ -31,6 +64,7 @@ window.addEventListener('scroll', () => {
 
     const elements = document.querySelectorAll('[data-source-line]');
     let sourceLine = 0;
+    let sourceFile = null;
 
     if (scrollingDown) {
       // Scrolling down: find last visible element
@@ -40,6 +74,7 @@ window.addEventListener('scroll', () => {
         const rect = el.getBoundingClientRect();
         if (rect.top < viewportBottom) {
           sourceLine = parseInt(el.getAttribute('data-source-line'));
+          sourceFile = el.getAttribute('data-source-file');
           break;
         }
       }
@@ -49,12 +84,78 @@ window.addEventListener('scroll', () => {
         const rect = el.getBoundingClientRect();
         if (rect.top >= 0) {
           sourceLine = parseInt(el.getAttribute('data-source-line'));
+          sourceFile = el.getAttribute('data-source-file');
           break;
         }
       }
     }
 
-    vscode.postMessage({ type: 'scroll', sourceLine, scrollingDown });
+    // Find current heading hierarchy
+    const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
+    let currentHeadings = [];
+    let lastHeadingTop = -Infinity;
+    
+    for (const h of headings) {
+      const rect = h.getBoundingClientRect();
+      if (rect.top <= 100) {
+        const level = parseInt(h.tagName.substring(1));
+        const text = h.textContent.trim();
+        
+        // If this heading is below the previous one, it's a continuation
+        // Remove headings at this level and deeper to maintain proper hierarchy
+        currentHeadings = currentHeadings.filter(item => item.level < level);
+        currentHeadings.push({ level, text });
+        lastHeadingTop = rect.top;
+      } else {
+        // Stop when we reach headings below viewport top
+        break;
+      }
+    }
+    
+    // Build heading path, ensuring deepest level is always visible
+    // Trim from left if too long (VS Code titles are left-aligned)
+    let headingPath = '';
+    if (currentHeadings.length > 0) {
+      const fullPath = currentHeadings.map(h => h.text).join(' > ');
+      
+      // If longer than 60 chars, trim from left to keep deepest levels
+      if (fullPath.length > 60 && currentHeadings.length > 1) {
+        // Try progressively shorter paths starting from deeper levels
+        for (let startIdx = 1; startIdx < currentHeadings.length; startIdx++) {
+          const trimmedPath = currentHeadings.slice(startIdx).map(h => h.text).join(' > ');
+          if (trimmedPath.length <= 54) { // Leave room for '... > ' prefix
+            headingPath = '... > ' + trimmedPath;
+            break;
+          }
+        }
+        // If still too long, just show the deepest heading
+        if (!headingPath) {
+          const deepest = currentHeadings[currentHeadings.length - 1].text;
+          headingPath = deepest.length > 60 ? '... > ' + deepest.substring(deepest.length - 54) : deepest;
+        }
+      } else {
+        headingPath = fullPath;
+      }
+    }
+    
+    vscode.postMessage({ type: 'scroll', sourceLine, sourceFile, scrollingDown, headingPath });
+    
+    // Check if scrolled near edges to trigger loading more files
+    const docHeight = document.documentElement.scrollHeight;
+    const viewportHeight = window.innerHeight;
+    const distanceFromTop = currentScrollTop;
+    const distanceFromBottom = docHeight - currentScrollTop - viewportHeight;
+    
+    // Trigger load more when within 50% of viewport from edge
+    // Load 2 files ahead when scrolling down for smoother experience
+    if (distanceFromTop < viewportHeight * 0.5 && !loadingPrevious) {
+      const scrollHeight = document.documentElement.scrollHeight;
+      const currentScroll = window.pageYOffset || document.documentElement.scrollTop;
+      loadingPrevious = true;
+      vscode.postMessage({ type: 'loadPrevious', oldScrollHeight: scrollHeight, oldScrollTop: currentScroll });
+    } else if (distanceFromBottom < viewportHeight * 0.5) {
+      vscode.postMessage({ type: 'loadNext', count: 2 });
+    }
   }, 50);
 });
 
@@ -88,9 +189,96 @@ window.addEventListener('contextmenu', (e) => {
 
 window.addEventListener('message', event => {
   const message = event.data;
-  if (message.type === 'scrollTo') {
+  if (message.type === 'updateFileContent') {
+    // Update only the content for a specific file without reloading
+    const filePath = message.filePath;
+    const newHtml = message.html;
+    
+    console.log('[UPDATE] Received update for file:', filePath);
+    
+    // Save current scroll position
+    const savedScroll = window.pageYOffset || document.documentElement.scrollTop;
+    console.log('[UPDATE] Before update scrollY=' + savedScroll);
+    
+    // Find the div with data-file-section attribute by iterating (avoid querySelector escaping issues)
+    const allSections = document.querySelectorAll('[data-file-section]');
+    let fileSection = null;
+    for (let i = 0; i < allSections.length; i++) {
+      if (allSections[i].getAttribute('data-file-section') === filePath) {
+        fileSection = allSections[i];
+        break;
+      }
+    }
+    
+    if (!fileSection) {
+      console.log('[UPDATE] Could not find file section for:', filePath);
+      console.log('[UPDATE] Available sections:', allSections.length);
+      if (allSections.length > 0) {
+        console.log('[UPDATE] First section path:', allSections[0].getAttribute('data-file-section'));
+      }
+      return;
+    }
+    
+    console.log('[UPDATE] Found file section');
+    
+    // Parse new HTML and extract content from wrapper div
+    const temp = document.createElement('div');
+    temp.innerHTML = newHtml;
+    const newContent = temp.querySelector('[data-file-section]');
+    
+    if (newContent) {
+      // Replace the content
+      fileSection.innerHTML = newContent.innerHTML;
+      console.log('[UPDATE] Replaced content');
+      
+      // Check if mermaid library is available
+      console.log('[UPDATE] Mermaid available:', typeof mermaid !== 'undefined');
+      console.log('[UPDATE] Window.mermaid available:', typeof window.mermaid !== 'undefined');
+      
+      // Wait for mermaid to re-render the new content, then restore scroll
+      const mermaidLib = typeof mermaid !== 'undefined' ? mermaid : (typeof window.mermaid !== 'undefined' ? window.mermaid : null);
+      
+      if (mermaidLib) {
+        // Find all mermaid blocks in the updated section
+        const mermaidBlocks = fileSection.querySelectorAll('.mermaid');
+        console.log('[UPDATE] Found ' + mermaidBlocks.length + ' mermaid blocks');
+        
+        if (mermaidBlocks.length > 0) {
+          mermaidLib.run({ nodes: mermaidBlocks }).then(() => {
+            window.scrollTo(0, savedScroll);
+            const newScroll = window.pageYOffset || document.documentElement.scrollTop;
+            console.log('[UPDATE] After mermaid scrollY=' + newScroll);
+          }).catch((err) => {
+            console.log('[UPDATE] Mermaid error:', err);
+            window.scrollTo(0, savedScroll);
+          });
+        } else {
+          window.scrollTo(0, savedScroll);
+          console.log('[UPDATE] No mermaid blocks, restored scroll');
+        }
+      } else {
+        window.scrollTo(0, savedScroll);
+        console.log('[UPDATE] No mermaid library found');
+      }
+    } else {
+      console.log('[UPDATE] Could not parse new content');
+    }
+  } else if (message.type === 'scrollTo') {
     isScrolling = true;
-    const targetElement = document.querySelector('[data-source-line="' + message.sourceLine + '"]');
+    // Find element matching both line and file
+    let targetElement = null;
+    if (message.sourceFile) {
+      const elements = document.querySelectorAll('[data-source-line="' + message.sourceLine + '"]');
+      for (const el of elements) {
+        if (el.getAttribute('data-source-file') === message.sourceFile) {
+          targetElement = el;
+          break;
+        }
+      }
+    } else {
+      targetElement = document.querySelector('[data-source-line="' + message.sourceLine + '"]');
+    }
+    
     if (targetElement) {
       const block = message.scrollingDown ? 'end' : 'start';
       targetElement.scrollIntoView({ block, behavior: 'auto' });
@@ -98,30 +286,89 @@ window.addEventListener('message', event => {
     setTimeout(() => isScrolling = false, 150);
   } else if (message.type === 'ensureVisible') {
     // Only scroll if the target line is not already visible
-    const targetElement = document.querySelector('[data-source-line="' + message.sourceLine + '"]');
+    let targetElement = null;
+    if (message.sourceFile) {
+      const elements = document.querySelectorAll('[data-source-line="' + message.sourceLine + '"]');
+      for (const el of elements) {
+        if (el.getAttribute('data-source-file') === message.sourceFile) {
+          targetElement = el;
+          break;
+        }
+      }
+    } else {
+      targetElement = document.querySelector('[data-source-line="' + message.sourceLine + '"]');
+    }
+    
     if (targetElement) {
       const rect = targetElement.getBoundingClientRect();
-      const isVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
+      // More lenient visibility check - only scroll if significantly out of view
+      // Allow 20% margin at top and bottom
+      const margin = window.innerHeight * 0.2;
+      const isVisible = rect.top >= -margin && rect.bottom <= window.innerHeight + margin;
       if (!isVisible) {
         isScrolling = true;
         targetElement.scrollIntoView({ block: 'center', behavior: 'auto' });
         setTimeout(() => isScrolling = false, 150);
       }
     }
+
   } else if (message.type === 'scrollToFile') {
     const file = message.file;
     const line = message.line || 0;
     let best = null;
     let bestDist = Infinity;
+    const candidates = [];
     document.querySelectorAll('[data-source-file]').forEach(el => {
-      if (el.getAttribute('data-source-file') === file) {
+      const elFile = el.getAttribute('data-source-file');
+      candidates.push(elFile);
+      if (elFile === file) {
         const elLine = parseInt(el.getAttribute('data-source-line')) || 0;
         const dist = Math.abs(elLine - line);
         if (dist < bestDist) { bestDist = dist; best = el; }
       }
     });
+    console.log('scrollToFile:', file, 'line:', line, 'found:', !!best, 'candidates:', candidates.length);
     if (best) {
-      best.scrollIntoView({ block: 'start', behavior: 'auto' });
+      isScrolling = true;
+      best.scrollIntoView({ block: 'center', behavior: 'auto' });
+      setTimeout(() => {
+        isScrolling = false;
+      }, 200);
+    } else {
+      console.log('No match found. Looking for:', file);
+      console.log('Available files:', [...new Set(candidates)]);
+    }
+  } else if (message.type === 'restoreScrollAfterPrepend') {
+    console.log('[PREPEND] Restoring scroll, oldHeight=' + message.oldScrollHeight + ', oldScrollTop=' + message.oldScrollTop);
+    
+    // Wait for mermaid to finish rendering before adjusting scroll
+    const restoreScroll = () => {
+      const newScrollHeight = document.documentElement.scrollHeight;
+      const heightDiff = newScrollHeight - message.oldScrollHeight;
+      console.log('[PREPEND] newHeight=' + newScrollHeight + ', heightDiff=' + heightDiff);
+      
+      if (heightDiff > 0) {
+        // Set scroll to old position plus the height of prepended content
+        const newScroll = message.oldScrollTop + heightDiff;
+        console.log('[PREPEND] Setting scroll to ' + newScroll + ' (was at ' + message.oldScrollTop + ')');
+        window.scrollTo(0, newScroll);
+        // Re-enable loading after scroll is restored
+        setTimeout(() => {
+          loadingPrevious = false;
+          console.log('[PREPEND] Re-enabled loadPrevious trigger');
+        }, 200);
+      } else {
+        loadingPrevious = false;
+      }
+    };
+    
+    // Wait for mermaid if available
+    const mermaidLib = typeof mermaid !== 'undefined' ? mermaid : (typeof window.mermaid !== 'undefined' ? window.mermaid : null);
+    if (mermaidLib) {
+      mermaidLib.run().then(restoreScroll).catch(restoreScroll);
+    } else {
+      // Small delay to let DOM settle
+      setTimeout(restoreScroll, 50);
     }
   }
 });
@@ -152,6 +399,129 @@ class PreviewManager {
       resolveImageUri: (absPath) => this.state.panel ? this.state.panel.webview.asWebviewUri(vscode.Uri.file(absPath)).toString() : absPath,
       extraHeadContent: scrollSyncScript
     })
+  }
+
+  /**
+   * Collects files in the spec root and builds context around the current file.
+   * @param {string} currentFilePath - Path to the currently open file.
+   * @returns {{ files: string[], currentIndex: number }} All files and index of current file.
+   */
+  buildFileContext(currentFilePath) {
+    const specRoot = this.config.getSpecRootForFile(currentFilePath)
+    if (!specRoot) return { files: [currentFilePath], currentIndex: 0 }
+    
+    const allFiles = collectFiles([specRoot]).filter(f => f.endsWith('.md') || f.endsWith('.markdown') || f.endsWith('.asn'))
+    const currentIndex = allFiles.findIndex(f => path.normalize(f) === path.normalize(currentFilePath))
+    
+    if (currentIndex === -1) return { files: [currentFilePath], currentIndex: 0 }
+    return { files: allFiles, currentIndex }
+  }
+
+  /**
+   * Renders a file to HTML, using cache for adjacent files.
+   * @param {string} filePath - File to render.
+   * @param {boolean} isCurrentFile - Whether this is the active editor file.
+   * @returns {string} Rendered HTML body content.
+   */
+  renderFileToHtml(filePath, isCurrentFile) {
+    const state = this.state
+    
+    if (!isCurrentFile && state.adjacentFileCache.has(filePath)) {
+      return state.adjacentFileCache.get(filePath)
+    }
+    
+    this.ensureHandler()
+    const isAsn = filePath.endsWith('.asn')
+    let content
+    
+    if (isCurrentFile && state.currentEditor && state.currentEditor.document.uri.fsPath === filePath) {
+      content = state.currentEditor.document.getText()
+    } else {
+      content = fs.readFileSync(filePath, 'utf8')
+    }
+    
+    // Convert ASN files to markdown with heading and comments
+    if (isAsn) {
+      const { asnToMarkdown } = require('specpress/lib/md2html/handlers/asnHandler')
+      const specRoot = this.config.getSpecRootForFile(filePath)
+      content = asnToMarkdown(content, specRoot, filePath)
+    }
+    
+    // Add FILE comment to mark file boundaries
+    const fileMarker = `<!-- FILE: ${filePath} -->\n`
+    content = fileMarker + content
+    
+    const specRoot = this.config.getSpecRootForFile(filePath)
+    const baseDir = path.dirname(filePath)
+    let html = state.handler.renderBody(content, true, baseDir, filePath, specRoot, false)
+    
+    // Wrap the rendered HTML with a div that has a data attribute for easy identification
+    html = `<div data-file-section="${filePath}">${html}</div>`
+    
+    // Cache adjacent files
+    if (!isCurrentFile) {
+      state.adjacentFileCache.set(filePath, html)
+    }
+    
+    return html
+  }
+
+  /**
+   * Builds the full preview HTML with current file + adjacent files.
+   * @returns {string} Complete HTML document.
+   */
+  buildContextPreview() {
+    const state = this.state
+    if (!state.currentEditor || state.contextFiles.length === 0) return ''
+    
+    const currentFilePath = state.currentEditor.document.uri.fsPath
+    
+    // Initialize context window if not set
+    if (state.contextStartIdx === -1) {
+      state.contextStartIdx = Math.max(0, state.currentFileIndex - 1)
+      state.contextEndIdx = Math.min(state.contextFiles.length - 1, state.currentFileIndex + 1)
+    }
+    
+    // Get files in context window
+    const contextFiles = []
+    for (let i = state.contextStartIdx; i <= state.contextEndIdx; i++) {
+      contextFiles.push(state.contextFiles[i])
+    }
+    
+    // Check if we're at the beginning of the spec (include cover page)
+    const isAtSpecStart = state.contextStartIdx === 0
+    
+    // Use concatenateFiles to get proper auto-headings and section numbering
+    const specRoot = this.config.getSpecRootForFile(currentFilePath)
+    const readFile = (filePath) => {
+      const isCurrentFile = filePath === currentFilePath
+      if (isCurrentFile && state.currentEditor) {
+        return state.currentEditor.document.getText()
+      }
+      return fs.readFileSync(filePath, 'utf8')
+    }
+    
+    const concatenated = concatenateFiles(contextFiles, readFile, specRoot)
+    
+    this.ensureHandler()
+    
+    // Include cover page if at spec start
+    if (isAtSpecStart) {
+      state.handler.frontPageHtml = buildFrontPageHtml(this.config.loadFrontPageData())
+    } else {
+      state.handler.frontPageHtml = null
+    }
+    
+    const baseDir = path.dirname(currentFilePath)
+    let html = state.handler.renderMarkdown(concatenated, baseDir, null, specRoot, isAtSpecStart)
+    
+    html = this.applyDiff(html, concatenated, null, contextFiles, { 
+      baseDir, 
+      specRoot, 
+      includeFrontPage: isAtSpecStart 
+    })
+    
+    return html
   }
 
   /** Ensures the handler is initialized. */
@@ -431,12 +801,71 @@ class PreviewManager {
           state.panel.webview.postMessage({ type: 'scrollToFile', file: state.restoreScrollTarget.file, line: state.restoreScrollTarget.line })
           state.restoreScrollTarget = null
         }
-      } else if (message.type === 'scroll' && state.currentEditor && !state.isMultiFilePreview && !state.isEditorScrolling && !state.lastFocusedIsEditor) {
-        state.isPreviewScrolling = true
-        const revealType = message.scrollingDown ? vscode.TextEditorRevealType.AtBottom : vscode.TextEditorRevealType.AtTop
-        const range = new vscode.Range(message.sourceLine, 0, message.sourceLine, 0)
-        state.currentEditor.revealRange(range, revealType)
-        setTimeout(() => state.isPreviewScrolling = false, 150)
+        // Don't scroll to current file if we're suppressing it (e.g., during loadPrevious)
+        // The suppressScrollToFile flag is checked in setupPreview's setTimeout
+      } else if (message.type === 'scroll') {
+        // Update panel title with current heading path
+        if (state.panel && message.headingPath) {
+          const prefix = state.changeTrackingCommit ? 'Preview (changes): ' : 'Preview: '
+          state.panel.title = prefix + message.headingPath
+        }
+        
+        // Sync preview scroll to editor
+        if (state.currentEditor && !state.isMultiFilePreview && !state.isEditorScrolling && !state.lastFocusedIsEditor) {
+          // Only sync scroll if the source line belongs to the current editor file
+          const currentFile = state.currentEditor.document.uri.fsPath
+          const normalizeFile = (f) => f ? path.normalize(f).toLowerCase() : null
+          
+          if (message.sourceFile && normalizeFile(message.sourceFile) !== normalizeFile(currentFile)) {
+            // Scroll event is from an adjacent file section - ignore for editor sync
+            return
+          }
+          
+          state.isPreviewScrolling = true
+          const revealType = message.scrollingDown ? vscode.TextEditorRevealType.AtBottom : vscode.TextEditorRevealType.AtTop
+          const range = new vscode.Range(message.sourceLine, 0, message.sourceLine, 0)
+          state.currentEditor.revealRange(range, revealType)
+          setTimeout(() => state.isPreviewScrolling = false, 150)
+        }
+      } else if (message.type === 'loadPrevious') {
+        // User scrolled near top - expand context window upward if possible
+        if (state.contextStartIdx > 0) {
+          const oldScrollHeight = message.oldScrollHeight || 0
+          const oldScrollTop = message.oldScrollTop || 0
+          
+          log(`[LOAD_PREV] Expanding context upward, oldScrollHeight=${oldScrollHeight}, oldScrollTop=${oldScrollTop}`)
+          
+          state.contextStartIdx = Math.max(0, state.contextStartIdx - 1)
+          const html = this.buildContextPreview()
+          
+          // Disable the automatic scrollToFile that happens on webviewReady
+          state.suppressScrollToFile = true
+          
+          state.panel.webview.html = html
+          
+          // Restore scroll position by adjusting for the height difference
+          setTimeout(() => {
+            if (state.panel && oldScrollHeight > 0) {
+              state.panel.webview.postMessage({ 
+                type: 'restoreScrollAfterPrepend',
+                oldScrollHeight,
+                oldScrollTop
+              })
+              log(`[LOAD_PREV] Sent restoreScrollAfterPrepend`)
+            }
+            state.suppressScrollToFile = false
+          }, 100)
+        }
+      } else if (message.type === 'loadNext') {
+        // User scrolled near bottom - expand context window downward
+        // Load 2 files at once for smoother scrolling
+        const count = message.count || 1
+        const newEndIdx = Math.min(state.contextFiles.length - 1, state.contextEndIdx + count)
+        if (newEndIdx > state.contextEndIdx) {
+          state.contextEndIdx = newEndIdx
+          const html = this.buildContextPreview()
+          state.panel.webview.html = html
+        }
       } else if (message.type === 'openFile') {
         const filePath = message.sourceFile || (state.currentEditor && state.currentEditor.document.uri.fsPath)
         if (!filePath) return
@@ -472,6 +901,17 @@ class PreviewManager {
     if (!this.config.isInsideSpecRoot(editor.document.uri.fsPath)) return
 
     const state = this.state
+    const filePath = editor.document.uri.fsPath
+    
+    // Build file context (current + neighbors)
+    const { files, currentIndex } = this.buildFileContext(filePath)
+    state.contextFiles = files
+    state.currentFileIndex = currentIndex
+    
+    // Reset or initialize context window (load 2 files before/after for smoother scrolling)
+    state.contextStartIdx = Math.max(0, currentIndex - 2)
+    state.contextEndIdx = Math.min(files.length - 1, currentIndex + 2)
+    
     state.disposeListeners()
     state.currentEditor = editor
     state.isMultiFilePreview = false
@@ -485,71 +925,70 @@ class PreviewManager {
       const resourceRoot = this.config.findSpecRootFor(editor.document.uri.fsPath)
         || this.config.wsRoot
         || path.dirname(editor.document.uri.fsPath)
-      state.panel = vscode.window.createWebviewPanel('specpressPreview', 'Markdown Preview',
-        vscode.ViewColumn.Beside, { enableScripts: true, localResourceRoots: [vscode.Uri.file(resourceRoot)] })
+      state.panel = vscode.window.createWebviewPanel('specpressPreview', 'Preview',
+        vscode.ViewColumn.Beside, { 
+          enableScripts: true, 
+          retainContextWhenHidden: true,
+          localResourceRoots: [vscode.Uri.file(resourceRoot)] 
+        })
       state.panel.onDidDispose(() => state.onPanelDisposed())
       this.registerMessageHandler()
     }
 
-    this.ensureHandler()
-    const isAsnFile = editor.document.fileName.endsWith('.asn')
-    const content = isAsnFile
-      ? '```asn\n' + editor.document.getText() + '\n```'
-      : editor.document.getText()
-    const filePath = editor.document.uri.fsPath
-    const specRoot = this.config.getSpecRootForFile(filePath)
-    const baseDir = path.dirname(filePath)
-    let html = state.handler.renderMarkdown(content, baseDir, filePath, specRoot)
-    html = this.applyDiff(html, content, filePath, null, { baseDir, specRoot, filePath })
+    // Render context preview (current + adjacent files)
+    const html = this.buildContextPreview()
     state.panel.webview.html = html
-    state.panel.title = state.changeTrackingCommit ? `Preview (changes): ${path.basename(editor.document.fileName)}` : `Preview: ${path.basename(editor.document.fileName)}`
+    // Initial title will be updated by scroll event once webview loads
+    const prefix = state.changeTrackingCommit ? 'Preview (changes)' : 'Preview'
+    state.panel.title = prefix
+
+    // Scroll to current file and current line, then enable navigation
+    setTimeout(() => {
+      if (state.panel && state.currentEditor && !state.suppressScrollToFile) {
+        const cursorLine = state.currentEditor.selection.active.line
+        state.panel.webview.postMessage({ 
+          type: 'scrollToFile', 
+          file: state.currentEditor.document.uri.fsPath, 
+          line: cursorLine 
+        })
+      }
+    }, 100)
 
     if (isNewPanel) {
-      // Briefly reveal the panel to ensure it can receive scroll events, then return focus to editor
-      state.panel.reveal(vscode.ViewColumn.Beside, true)
       setTimeout(() => {
         vscode.window.showTextDocument(editor.document, editor.viewColumn, false)
       }, 100)
     }
 
+    let updateTimeout = null
     state.updatePreview = vscode.workspace.onDidChangeTextDocument(e => {
       if (e.document === state.currentEditor.document && state.panel) {
-        const text = state.currentEditor.document.fileName.endsWith('.asn')
-          ? '```asn\n' + e.document.getText() + '\n```'
-          : e.document.getText()
-        const fp = state.currentEditor.document.uri.fsPath
-        const sr = this.config.getSpecRootForFile(fp)
-        const bd = path.dirname(fp)
-        let h = state.handler.renderMarkdown(text, bd, fp, sr)
-        h = this.applyDiff(h, text, fp, null, { baseDir: bd, specRoot: sr, filePath: fp })
-        state.panel.webview.html = h
-        
-        // Ensure cursor position is visible in preview (only scroll if needed)
-        // Set flag to prevent scroll sync feedback loop
-        state.isEditorScrolling = true
-        setTimeout(() => {
-          if (state.panel && state.currentEditor) {
-            const cursorLine = state.currentEditor.selection.active.line
-            state.panel.webview.postMessage({ type: 'ensureVisible', sourceLine: cursorLine })
-          }
-          setTimeout(() => state.isEditorScrolling = false, 150)
-        }, 50)
+        // Debounce: only update preview 500ms after you stop typing
+        if (updateTimeout) clearTimeout(updateTimeout)
+        updateTimeout = setTimeout(() => {
+          if (!state.panel || !state.currentEditor) return
+          
+          log(`[UPDATE] Rebuilding context preview`)
+          
+          // Rebuild full context preview (includes auto-headings)
+          const html = this.buildContextPreview()
+          state.panel.webview.html = html
+        }, 500)
       }
     })
 
     state.fileSaveListener = vscode.workspace.onDidSaveTextDocument(doc => {
       if (!state.panel || state.isMultiFilePreview) return
       if (!state.currentEditor) return
-      if (doc.fileName.endsWith('.json') && state.currentEditor.document.languageId === 'markdown') {
-        const mdDir = path.dirname(state.currentEditor.document.uri.fsPath)
-        if (doc.uri.fsPath.startsWith(mdDir)) {
-          const text = state.currentEditor.document.getText()
-          const fp = state.currentEditor.document.uri.fsPath
-          const sr = this.config.getSpecRootForFile(fp)
-          let h = state.handler.renderMarkdown(text, mdDir, fp, sr)
-          h = this.applyDiff(h, text, fp, null, { baseDir: mdDir, specRoot: sr, filePath: fp })
-          state.panel.webview.html = h
-        }
+      
+      const savedPath = doc.uri.fsPath
+      
+      // Check if saved file is in context (adjacent file or JSON)
+      if (state.contextFiles.includes(savedPath) || doc.fileName.endsWith('.json')) {
+        // Invalidate cache and rebuild
+        state.adjacentFileCache.delete(savedPath)
+        const html = this.buildContextPreview()
+        state.panel.webview.html = html
       }
     })
 
@@ -575,7 +1014,14 @@ class PreviewManager {
           return
         }
         
-        state.panel.webview.postMessage({ type: 'scrollTo', sourceLine, scrollingDown })
+        // Send both line and file to ensure we scroll to the right element
+        const currentFile = state.currentEditor.document.uri.fsPath
+        state.panel.webview.postMessage({ 
+          type: 'scrollTo', 
+          sourceLine, 
+          sourceFile: currentFile,
+          scrollingDown 
+        })
         setTimeout(() => state.isEditorScrolling = false, 150)
       }
     })
@@ -584,6 +1030,16 @@ class PreviewManager {
       if (ed && state.currentEditor && ed.document === state.currentEditor.document) {
         state.currentEditor = ed
         state.lastFocusedIsEditor = true
+      } else if (ed && state.panel && !state.isMultiFilePreview) {
+        // User switched to a different file - rebuild context if it's a spec file
+        const isMarkdown = ed.document.languageId === 'markdown'
+        const isAsn = ed.document.fileName.endsWith('.asn')
+        if ((isMarkdown || isAsn) && this.config.isInsideSpecRoot(ed.document.uri.fsPath)) {
+          // Reset context window for the new file
+          state.contextStartIdx = -1
+          state.contextEndIdx = -1
+          this.setupPreview(ed)
+        }
       }
     })
 
@@ -609,6 +1065,12 @@ class PreviewManager {
     state.currentEditor = null
     state.lastMultiFileUris = uris
     state.isSpecRootPreview = config.isSpecRootSelection(uris)
+    // Reset context window state when switching to multi-file mode
+    state.contextStartIdx = -1
+    state.contextEndIdx = -1
+    state.contextFiles = []
+    state.currentFileIndex = -1
+    state.adjacentFileCache.clear()
 
     const buildPreview = () => {
       const files = commitRef

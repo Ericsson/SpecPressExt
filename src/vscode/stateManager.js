@@ -32,6 +32,10 @@ class StateManager {
     this.multiFilePaths = null
     /** @type {string[]|null} All source file paths (md + asn) used in multi-file preview */
     this.multiFileAllFiles = null
+    /** @type {number} Start index of rendered context window */
+    this.contextStartIdx = -1
+    /** @type {number} End index of rendered context window */
+    this.contextEndIdx = -1
     /** @type {boolean} Tracks whether the editor or preview was last focused */
     this.lastFocusedIsEditor = true
     /** @type {import('vscode').Uri[]|null} URIs from the most recent multi-file preview */
@@ -54,6 +58,14 @@ class StateManager {
     this.changeTrackingBaseline = null
     /** @type {import('vscode').Range|null} Last visible range in editor for scroll direction detection */
     this.lastVisibleRange = null
+    /** @type {string[]} Files in current preview context (current + neighbors) */
+    this.contextFiles = []
+    /** @type {number} Index of current editor file in contextFiles */
+    this.currentFileIndex = -1
+    /** @type {Map<string,string>} Cache of rendered HTML for adjacent files */
+    this.adjacentFileCache = new Map()
+    /** @type {boolean} Flag to suppress automatic scrollToFile after HTML reload */
+    this.suppressScrollToFile = false
   }
 
   /** Disposes listeners and resets preview-related state. */
@@ -72,6 +84,9 @@ class StateManager {
     this.multiFileBaseDir = null
     this.multiFilePaths = null
     this.multiFileAllFiles = null
+    this.contextFiles = []
+    this.currentFileIndex = -1
+    this.adjacentFileCache.clear()
   }
 
   /** Called when the panel is disposed. */
