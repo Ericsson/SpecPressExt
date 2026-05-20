@@ -1079,7 +1079,44 @@ class PreviewManager {
 
       const filePaths = files.filter(f => f.endsWith('.md') || f.endsWith('.markdown'))
 
+      // Build image cache from git commit if viewing a commit
+      let imageCache = null
+      if (commitRef) {
+        const { extractFilesFromCommit } = require('./helpers')
+        const specRoots = files.length > 0 ? [config.getSpecRootForFile(files[0])] : []
+        imageCache = extractFilesFromCommit(commitRef.repoRoot, commitRef.commit, specRoots)
+      }
+
       this.ensureHandler()
+      
+      // Override image resolver for git commits
+      if (commitRef && imageCache) {
+        const normPath = (p) => p.replace(/\\/g, '/').toLowerCase()
+        state.handler.resolveImageUri = (absPath) => {
+          // Try to find image in git cache
+          let imgData = imageCache.get(absPath)
+          if (!imgData) {
+            const target = normPath(absPath)
+            for (const [key, val] of imageCache) {
+              if (normPath(key) === target) {
+                imgData = val
+                break
+              }
+            }
+          }
+          if (imgData && Buffer.isBuffer(imgData)) {
+            const ext = absPath.split('.').pop().toLowerCase()
+            const mime = ext === 'svg' ? 'image/svg+xml' : `image/${ext === 'jpg' ? 'jpeg' : ext}`
+            return `data:${mime};base64,${imgData.toString('base64')}`
+          }
+          // Fallback to local file
+          return state.panel ? state.panel.webview.asWebviewUri(vscode.Uri.file(absPath)).toString() : absPath
+        }
+      } else {
+        // Reset to default resolver for local files
+        state.handler.resolveImageUri = (absPath) => state.panel ? state.panel.webview.asWebviewUri(vscode.Uri.file(absPath)).toString() : absPath
+      }
+      
       if (state.isSpecRootPreview) state.handler.frontPageHtml = buildFrontPageHtml(this.config.loadFrontPageData())
 
       const specRoot = files.length > 0 ? config.getSpecRootForFile(files[0]) : ''
@@ -1111,7 +1148,10 @@ class PreviewManager {
 
       state.panel.title = commitRef ? `Preview (${commitRef.shortHash})` : (state.changeTrackingCommit ? 'Preview (changes)' : 'Multiple Files Preview')
       let html = state.handler.renderMarkdown(processedContent, baseDir, null, specRoot, state.isSpecRootPreview)
-      html = this.applyDiff(html, processedContent, null, files, { baseDir, specRoot, includeFrontPage: state.isSpecRootPreview })
+      // Only apply diff if change tracking is enabled AND we're viewing local files (not a git commit)
+      if (!commitRef) {
+        html = this.applyDiff(html, processedContent, null, files, { baseDir, specRoot, includeFrontPage: state.isSpecRootPreview })
+      }
       state.panel.webview.html = html
     }
 

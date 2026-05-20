@@ -99,7 +99,27 @@ async function exportDocx(state, config, context, uri, allUris) {
           const mermaidConfig = config.loadMermaidConfig()
           const mermaidBundlePath = await ensureMermaidBundle(context.globalStorageUri.fsPath)
 
-          const converter = new MarkdownToDocxConverter(mermaidConfig, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot))
+          // Build file resolver for git commits
+          let fileResolver = null
+          if (shortHash) {
+            const { extractFilesFromCommit } = require('./helpers')
+            const searchPaths = [...new Set(uris.map(u => {
+              const p = u.fsPath
+              return fs.existsSync(p) && fs.statSync(p).isDirectory() ? p : path.dirname(p)
+            }))]
+            const fileCache = extractFilesFromCommit(repoRoot, commitInput, searchPaths)
+            const normPath = (p) => p.replace(/\\/g, '/').toLowerCase()
+            fileResolver = (filePath) => {
+              if (fileCache.has(filePath)) return fileCache.get(filePath)
+              const target = normPath(filePath)
+              for (const [key, val] of fileCache) {
+                if (normPath(key) === target) return val
+              }
+              return fs.readFileSync(filePath)
+            }
+          }
+
+          const converter = new MarkdownToDocxConverter(mermaidConfig, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot), fileResolver)
 
           let frontPage = null
           if (config.isSpecRootSelection(uris)) {

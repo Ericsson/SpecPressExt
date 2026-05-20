@@ -23,8 +23,19 @@ function makeCachedFileResolver(cache) {
     for (const [key, val] of cache) {
       if (normPath(key) === target) return val
     }
+    // Fallback: read from filesystem (always returns Buffer for consistency)
     return fs.readFileSync(filePath)
   }
+}
+
+/**
+ * Creates a fileResolver for local files that matches the behavior of makeCachedFileResolver.
+ * Always returns Buffer for consistency.
+ *
+ * @returns {Function} fileResolver `(absolutePath) => Buffer`
+ */
+function makeLocalFileResolver() {
+  return (filePath) => fs.readFileSync(filePath)
 }
 
 /**
@@ -194,7 +205,7 @@ async function compareDocx(state, config, context, uri, allUris) {
         // Generate revised DOCX
         if (filesRevised.length > 0) {
           let readRevised = undefined
-          let fileResolver = null
+          let fileResolver = makeLocalFileResolver()
 
           if (targetShortHash) {
             progress.report({ message: `Loading files from ${targetShortHash}...` })

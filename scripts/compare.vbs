@@ -34,8 +34,10 @@ Dim originalDoc
 Set originalDoc = wordApp.Documents.Open(originalPath, , True)
 
 ' wdCompareDestinationNew = 2 (create new document with comparison)
-' wdGranularityWordLevel = 1
-originalDoc.Compare revisedPath, authorName, 2, True, True, False, False, False
+' Document.Compare(Name, [AuthorName], [CompareTarget], [DetectFormatChanges], [IgnoreAllComparisonWarnings], [AddToRecentFiles], [RemovePersonalInformation], [RemoveDateAndTime])
+' CompareTarget: wdCompareTargetNew = 2
+' DetectFormatChanges: True to detect format changes
+originalDoc.Compare revisedPath, authorName, 2, True
 
 ' Close the original (read-only) document, keep only the comparison result
 originalDoc.Close 0 ' wdDoNotSaveChanges = 0
