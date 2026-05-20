@@ -165,11 +165,11 @@ window.addEventListener('focus', () => {
 
 window.addEventListener('dblclick', (e) => {
   let el = e.target;
-  while (el && !el.getAttribute('data-source-line')) {
+  while (el && !el.getAttribute('data-source-file')) {
     el = el.parentElement;
   }
   if (!el) return;
-  const sourceLine = parseInt(el.getAttribute('data-source-line'));
+  const sourceLine = parseInt(el.getAttribute('data-source-line')) || 0;
   const sourceFile = el.getAttribute('data-source-file') || null;
   vscode.postMessage({ type: 'openFile', sourceLine, sourceFile });
 });
@@ -705,6 +705,28 @@ class PreviewManager {
 
     // -- Step 5: Run word-level HTML diff on the placeholder-substituted text --
     let diffedBody = HtmlDiff.default.execute(processedBaseline, processedCurrent)
+
+    // Re-inject data-source-file attributes from FILE markers for double-click navigation
+    const fileMarkerRe = /<!-- FILE: (.+?) -->/g
+    let match
+    let lastFileEndPos = 0
+    const fileSegments = []
+    while ((match = fileMarkerRe.exec(diffedBody)) !== null) {
+      if (lastFileEndPos > 0) {
+        fileSegments.push({ start: lastFileEndPos, end: match.index, file: fileSegments[fileSegments.length - 1].file })
+      }
+      lastFileEndPos = match.index + match[0].length
+      fileSegments.push({ start: lastFileEndPos, end: diffedBody.length, file: match[1] })
+    }
+    for (let i = fileSegments.length - 1; i >= 0; i--) {
+      const seg = fileSegments[i]
+      let segment = diffedBody.substring(seg.start, seg.end)
+      segment = segment.replace(/(<(?:h[1-6]|p|li|td|th|div|pre)[^>]*)(>)/g, (m, tag, close) => {
+        if (tag.includes('data-source-file=')) return m
+        return `${tag} data-source-file="${seg.file}"${close}`
+      })
+      diffedBody = diffedBody.substring(0, seg.start) + segment + diffedBody.substring(seg.end)
+    }
 
     // -- Step 6: Restore placeholders with appropriate diff visualization --
     // Three cases for each placeholder:
