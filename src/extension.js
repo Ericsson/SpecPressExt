@@ -11,12 +11,43 @@ const { compareDocx } = require('./vscode/compareDocx')
 const { NOT_CONFIGURED_MSG, pickCommit, extractFilesFromCommit } = require('./vscode/helpers')
 const { getRepoRoot } = require('specpress/lib/common/gitHelpers')
 const { JsonTableEditorProvider } = require('./vscode/jsonTableEditor')
+const { CommentManager } = require('./vscode/commenting/commentManager')
+const { CommentDecorationManager } = require('./vscode/commenting/commentDecorations')
+const { CommentCodeLensProvider } = require('./vscode/commenting/commentCodeLensProvider')
+const { CommentHoverProvider } = require('./vscode/commenting/commentHoverProvider')
+const { CommentTreeProvider } = require('./vscode/commenting/commentTreeProvider')
+const { CommentDetailViewProvider } = require('./vscode/commenting/commentDetailViewProvider')
+const { CommentFilterViewProvider } = require('./vscode/commenting/commentFilterViewProvider')
+const { addComment } = require('./vscode/commenting/addComment')
+const { handleCommentClick } = require('./vscode/commenting/handleCommentClick')
+const { validateCommentPositions } = require('./vscode/commenting/validateCommentPositions')
+const { reconfirmCommentPosition } = require('./vscode/commenting/reconfirmCommentPosition')
+const { selectCommentInTree, showCommentInSidebar } = require('./vscode/commenting/commentHelpers')
+const { logger } = require('./vscode/logger')
 
 const config = new ConfigLoader()
 const state = new StateManager()
 
 /** @type {PreviewManager|null} */
 let previewMgr = null
+
+/** @type {CommentManager|null} */
+let commentMgr = null
+
+/** @type {CommentDecorationManager|null} */
+let decorationMgr = null
+
+/** @type {CommentCodeLensProvider|null} */
+let codeLensProvider = null
+
+/** @type {CommentTreeProvider|null} */
+let commentTreeProvider = null
+
+/** @type {CommentDetailViewProvider|null} */
+let commentDetailViewProvider = null
+
+/** @type {CommentFilterViewProvider|null} */
+let commentFilterViewProvider = null
 
 /**
  * Activates the extension. Registers all commands and listeners.
@@ -26,6 +57,148 @@ let previewMgr = null
 function activate(context) {
   const extensionDir = path.join(__dirname, '..')
   previewMgr = new PreviewManager(state, config, extensionDir)
+
+  // Initialize logger based on configuration or environment variable
+  const enableLogging = process.env.VSCODE_SPECPRESS_DEBUG === 'true' || config.raw.get('enableDebugLogging', false)
+  logger.setEnabled(enableLogging)
+
+  // Initialize comment system
+  commentMgr = new CommentManager(config)
+  decorationMgr = new CommentDecorationManager(commentMgr, extensionDir)
+  codeLensProvider = new CommentCodeLensProvider(commentMgr, config)
+  commentTreeProvider = new CommentTreeProvider(commentMgr, config)
+  commentDetailViewProvider = new CommentDetailViewProvider(commentMgr, config, extensionDir)
+  commentFilterViewProvider = new CommentFilterViewProvider(commentTreeProvider)
+  
+  // Connect tree provider to detail view provider for bold styling
+  commentDetailViewProvider.setTreeProvider(commentTreeProvider)
+
+  // Register tree view for comments
+  const treeView = vscode.window.createTreeView('specpressComments', {
+    treeDataProvider: commentTreeProvider,
+    showCollapseAll: true,
+    canSelectMany: false
+  })
+  context.subscriptions.push(treeView)
+
+  // Listen to selection changes to prevent unwanted collapses
+  context.subscriptions.push(
+    treeView.onDidChangeSelection(e => {
+      logger.log('Tree selection changed', { selectionCount: e.selection.length })
+      if (e.selection.length > 0) {
+        const selected = e.selection[0]
+        if (selected && selected.comment) {
+          logger.log('Selected comment', { 
+            commentId: selected.comment.commentId, 
+            isReply: !!selected.comment.replyTo,
+            suppressRefresh: commentTreeProvider.suppressRefresh
+          })
+          
+          // Update the selected comment indicator WITHOUT refreshing
+          commentTreeProvider.setSelectedComment(selected.comment.commentId, false)
+          
+          // Show in detail view
+          const specRoot = selected.specRoot || selected.comment.specRoot
+          if (specRoot) {
+            commentDetailViewProvider.showComment(selected.comment, specRoot)
+          }
+        }
+      }
+    })
+  )
+
+  // Register filter view
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      'specpressCommentFilter',
+      commentFilterViewProvider
+    )
+  )
+
+  // Register webview for comment details in sidebar
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      'specpressCommentDetail',
+      commentDetailViewProvider
+    )
+  )
+
+  // Register CodeLens provider for comment indicators
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
+      [{ language: 'markdown' }, { pattern: '**/*.asn' }],
+      codeLensProvider
+    )
+  )
+
+  // Register hover provider for comment tooltips
+  const hoverProvider = new CommentHoverProvider(commentMgr, config)
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(
+      [{ language: 'markdown' }, { pattern: '**/*.asn' }],
+      hoverProvider
+    )
+  )
+
+  // Update decorations when editor changes
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor(async editor => {
+      if (editor) await decorationMgr.updateDecorations(editor, config)
+    })
+  )
+
+  // Update decorations when document is saved
+  context.subscriptions.push(
+    vscode.workspace.onDidSaveTextDocument(async doc => {
+      if (doc.fileName.endsWith('.json')) {
+        // Comment file might have been saved, invalidate cache and refresh all
+        const specRoots = config.resolveSpecRoots()
+        for (const specRoot of specRoots) {
+          const commentFolder = commentMgr.getCommentFolder(specRoot)
+          if (doc.fileName.startsWith(commentFolder)) {
+            commentMgr.invalidateCache(specRoot)
+            break
+          }
+        }
+        const editor = vscode.window.activeTextEditor
+        if (editor) {
+          await decorationMgr.updateDecorations(editor, config)
+          codeLensProvider.refresh()
+        }
+        // Refresh tree view
+        commentTreeProvider.refresh()
+      }
+    })
+  )
+
+  // Watch comment folder for changes
+  const specRoots = config.resolveSpecRoots()
+  for (const specRoot of specRoots) {
+    const commentFolder = commentMgr.getCommentFolder(specRoot)
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(commentFolder, '*.json')
+    )
+    watcher.onDidCreate(() => {
+      commentMgr.invalidateCache(specRoot)
+      commentTreeProvider.refresh()
+    })
+    watcher.onDidChange(() => {
+      commentMgr.invalidateCache(specRoot)
+      commentTreeProvider.refresh()
+    })
+    watcher.onDidDelete(() => {
+      commentMgr.invalidateCache(specRoot)
+      commentTreeProvider.refresh()
+    })
+    context.subscriptions.push(watcher)
+  }
+
+  // Initial decoration for active editor
+  if (vscode.window.activeTextEditor) {
+    decorationMgr.updateDecorations(vscode.window.activeTextEditor, config)
+  }
+
+  context.subscriptions.push(decorationMgr)
 
   // Register JsonTable custom editor
   context.subscriptions.push(
@@ -225,8 +398,288 @@ function activate(context) {
         state.restoreScrollTarget = { file: editor.document.uri.fsPath, line: visibleLine }
       }
       vscode.commands.executeCommand('specpress.previewMultiple', uris[0], uris, { skipCommitPicker: true })
+    }),
+
+    vscode.commands.registerCommand('specpress.addComment', async () => {
+      await addComment(commentMgr, decorationMgr, codeLensProvider, commentDetailViewProvider, commentTreeProvider, treeView, config)
+      // Refresh tree view after adding comment
+      commentTreeProvider.refresh()
+    }),
+
+    vscode.commands.registerCommand('specpress.validateCommentPositions', async () => {
+      await validateCommentPositions(commentMgr, decorationMgr, codeLensProvider, config)
+      commentTreeProvider.refresh()
+    }),
+
+    vscode.commands.registerCommand('specpress.reconfirmCommentPosition', async (comment, specRoot) => {
+      // If called from detail view with comment object, use it directly
+      if (comment && specRoot) {
+        const editor = vscode.window.activeTextEditor
+        if (!editor) {
+          vscode.window.showErrorMessage('No active editor')
+          return
+        }
+
+        const userId = config.userId
+        if (comment.authorId !== userId) {
+          const confirm = await vscode.window.showWarningMessage(
+            `Reconfirm position for comment by ${comment.authorName}?`,
+            { modal: true, detail: 'This will update the comment\'s position to your current cursor location.' },
+            'Reconfirm'
+          )
+          if (confirm !== 'Reconfirm') return
+        }
+
+        try {
+          const lineNumber = editor.selection.active.line
+          const columnNumber = editor.selection.active.character
+          const document = editor.document
+          const cursorOffset = document.offsetAt(editor.selection.active)
+          const startOffset = Math.max(0, cursorOffset - 20)
+          const endOffset = Math.min(document.getText().length, cursorOffset + 20)
+          const startPos = document.positionAt(startOffset)
+          const endPos = document.positionAt(endOffset)
+          const snippet = document.getText(new vscode.Range(startPos, endPos))
+
+          const commentPath = path.join(commentMgr.getCommentFolder(specRoot), comment.commentId)
+          const content = JSON.parse(fs.readFileSync(commentPath, 'utf8'))
+          
+          content.lineNumber = lineNumber
+          content.columnNumber = columnNumber
+          content.lineSnippet = snippet
+          content.updatedAt = new Date().toISOString()
+          
+          fs.writeFileSync(commentPath, JSON.stringify(content, null, 2))
+          commentMgr.invalidateCache(specRoot)
+
+          await decorationMgr.updateDecorations(editor, config)
+          codeLensProvider.refresh()
+          commentTreeProvider.refresh()
+
+          // Refresh detail view
+          const updatedComment = commentMgr.getAllComments(specRoot).find(c => c.commentId === comment.commentId)
+          if (updatedComment) {
+            commentDetailViewProvider.showComment(updatedComment, specRoot)
+          }
+
+          vscode.window.showInformationMessage(
+            `Comment position updated to Line ${lineNumber + 1}, Column ${columnNumber}`
+          )
+        } catch (e) {
+          vscode.window.showErrorMessage(`Failed to update position: ${e.message}`)
+        }
+      } else {
+        // Called from command palette - show picker
+        await reconfirmCommentPosition(commentMgr, decorationMgr, codeLensProvider, config)
+        commentTreeProvider.refresh()
+      }
+    }),
+
+    vscode.commands.registerCommand('specpress.handleCommentClick', async (uri, lineNum) => {
+      await handleCommentClick(commentDetailViewProvider, commentTreeProvider, treeView, uri, lineNum)
+    }),
+
+    vscode.commands.registerCommand('specpress.refreshCommentTree', () => {
+      commentTreeProvider.refresh()
+      // Also refresh decorations in active editor
+      const editor = vscode.window.activeTextEditor
+      if (editor) {
+        decorationMgr.updateDecorations(editor, config)
+        codeLensProvider.refresh()
+      }
+    }),
+
+    vscode.commands.registerCommand('specpress.expandAllComments', async () => {
+      const fileItems = await commentTreeProvider.getFileItems()
+      for (const fileItem of fileItems) {
+        await treeView.reveal(fileItem, { expand: true })
+      }
+    }),
+
+    vscode.commands.registerCommand('specpress.expandCurrentFile', async () => {
+      const editor = vscode.window.activeTextEditor
+      if (!editor) return
+
+      const filePath = editor.document.uri.fsPath
+      if (!config.isInsideSpecRoot(filePath)) return
+
+      const specRoot = config.getSpecRootForFile(filePath)
+      const relativeUri = path.relative(specRoot, filePath).replace(/\\/g, '/')
+
+      const fileItems = await commentTreeProvider.getFileItems()
+      
+      // Collapse all items first
+      for (const fileItem of fileItems) {
+        try {
+          await treeView.reveal(fileItem, { expand: false })
+        } catch (e) {
+          // Ignore errors
+        }
+      }
+
+      // Small delay to ensure collapse completes
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      // Then expand only the current file (without expanding child comments)
+      for (const fileItem of fileItems) {
+        if (fileItem.comment.fileUri === relativeUri && fileItem.comment.specRoot === specRoot) {
+          await treeView.reveal(fileItem, { expand: 1, select: true })
+          break
+        }
+      }
+    }),
+
+    vscode.commands.registerCommand('specpress.jumpToComment', async (comment, specRoot) => {
+      const filePath = path.isAbsolute(comment.fileUri)
+        ? comment.fileUri
+        : path.join(specRoot, comment.fileUri)
+
+      try {
+        const doc = await vscode.workspace.openTextDocument(filePath)
+        const editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.One)
+        const col = comment.columnNumber !== undefined ? comment.columnNumber : 0
+        const pos = new vscode.Position(comment.lineNumber, col)
+        editor.selection = new vscode.Selection(pos, pos)
+        editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter)
+
+        // Show comment details in sidebar
+        commentDetailViewProvider.showComment(comment, specRoot)
+        
+        // Select in tree (which will handle expansion)
+        await selectCommentInTree(commentTreeProvider, treeView, comment, specRoot)
+      } catch (e) {
+        vscode.window.showErrorMessage(`Failed to open file: ${e.message}`)
+      }
+    }),
+
+    vscode.commands.registerCommand('specpress.showCommentFromHover', async (commentId, specRoot) => {
+      // Find the comment by ID
+      const commentFolder = commentMgr.getCommentFolder(specRoot)
+      const commentPath = path.join(commentFolder, commentId)
+      
+      if (!fs.existsSync(commentPath)) {
+        vscode.window.showErrorMessage('Comment not found')
+        return
+      }
+
+      try {
+        const content = fs.readFileSync(commentPath, 'utf8')
+        const comment = JSON.parse(content)
+
+        // Show in sidebar and select in tree
+        await showCommentInSidebar(comment, specRoot, commentDetailViewProvider, commentTreeProvider, treeView)
+      } catch (e) {
+        vscode.window.showErrorMessage(`Failed to load comment: ${e.message}`)
+      }
+    }),
+
+    vscode.commands.registerCommand('specpress.showDebugLog', async () => {
+      const logPath = logger.getLogPath()
+      vscode.window.showInformationMessage(`Debug log: ${logPath}`, 'Open Log', 'Copy Path').then(choice => {
+        if (choice === 'Open Log') {
+          vscode.workspace.openTextDocument(logPath).then(doc => {
+            vscode.window.showTextDocument(doc)
+          })
+        } else if (choice === 'Copy Path') {
+          vscode.env.clipboard.writeText(logPath)
+          vscode.window.showInformationMessage('Log path copied to clipboard')
+        }
+      })
     })
   )
+
+  /**
+   * Find and select a comment in the tree view
+   */
+  async function selectCommentInTree(treeProvider, treeView, comment, specRoot) {
+    logger.log('=== selectCommentInTree START ===', { 
+      commentId: comment.commentId, 
+      isReply: !!comment.replyTo,
+      replyTo: comment.replyTo
+    })
+    
+    // Suppress refresh during programmatic selection to preserve expansion state
+    treeProvider.suppressRefresh = true
+    logger.log('Set suppressRefresh = true')
+    
+    try {
+      await new Promise(resolve => setTimeout(resolve, 100))
+      logger.log('Initial delay complete')
+
+      const rootItems = await treeProvider.getChildren()
+      logger.log('Got root items', { count: rootItems.length })
+      
+      for (const fileItem of rootItems) {
+        if (fileItem.comment.fileUri === comment.fileUri && fileItem.comment.specRoot === specRoot) {
+          logger.log('Found matching file item', { fileUri: fileItem.comment.fileUri })
+          
+          await treeView.reveal(fileItem, { expand: true, select: false, focus: false })
+          logger.log('Revealed file item')
+          
+          await new Promise(resolve => setTimeout(resolve, 50))
+          
+          const commentItems = await treeProvider.getChildren(fileItem)
+          logger.log('Got comment items', { count: commentItems.length })
+          
+          if (comment.replyTo) {
+            logger.log('This is a reply, looking for parent')
+            let parentItem = null
+            for (const item of commentItems) {
+              if (item.comment.commentId === comment.replyTo) {
+                parentItem = item
+                logger.log('Found parent item', { parentId: comment.replyTo })
+                break
+              }
+            }
+            
+            if (parentItem) {
+              logger.log('Revealing parent with expand=true')
+              await treeView.reveal(parentItem, { expand: true, select: false, focus: false })
+              logger.log('Parent revealed, waiting 150ms')
+              
+              await new Promise(resolve => setTimeout(resolve, 150))
+              
+              const replyItems = await treeProvider.getChildren(parentItem)
+              logger.log('Got reply items', { count: replyItems.length })
+              
+              for (const replyItem of replyItems) {
+                if (replyItem.comment.commentId === comment.commentId) {
+                  logger.log('Found reply item, revealing with select=true')
+                  await treeView.reveal(replyItem, { select: true, focus: true })
+                  logger.log('Reply revealed and selected')
+                  return
+                }
+              }
+            }
+          } else {
+            logger.log('This is a parent comment')
+            for (const commentItem of commentItems) {
+              if (commentItem.comment.commentId === comment.commentId) {
+                const hasReplies = treeProvider.hasReplies(comment.commentId, specRoot)
+                logger.log('Found comment item', { hasReplies })
+                
+                if (hasReplies) {
+                  logger.log('Comment has replies - expanding with level 3')
+                  await treeView.reveal(commentItem, { expand: 3, select: true, focus: true })
+                } else {
+                  logger.log('Comment has no replies - revealing without expand')
+                  await treeView.reveal(commentItem, { expand: false, select: true, focus: true })
+                }
+                logger.log('Comment revealed and selected')
+                return
+              }
+            }
+          }
+        }
+      }
+    } finally {
+      logger.log('Waiting 200ms before re-enabling refresh')
+      await new Promise(resolve => setTimeout(resolve, 200))
+      treeProvider.suppressRefresh = false
+      logger.log('Set suppressRefresh = false')
+      logger.log('=== selectCommentInTree END ===')
+    }
+  }
 
   // Auto preview when switching editors
   let hintShown = false
@@ -263,6 +716,12 @@ function activate(context) {
       if (e.affectsConfiguration('specpress')) {
         config.invalidate()
         state.handler = null
+        
+        // Update logger enabled state
+        if (e.affectsConfiguration('specpress.enableDebugLogging')) {
+          const enableLogging = config.raw.get('enableDebugLogging', false)
+          logger.setEnabled(enableLogging)
+        }
       }
     })
   )

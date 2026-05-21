@@ -55,6 +55,21 @@ class ConfigLoader {
     return this.raw.get('multiPagePreviewDefaultPath', '')
   }
 
+  /** @returns {string} Comment folder name (raw config value). */
+  get commentFolder() {
+    return this.raw.get('commentFolder', 'comments')
+  }
+
+  /** @returns {string} User ID for comments. */
+  get userId() {
+    return this.raw.get('userId', '')
+  }
+
+  /** @returns {string} User display name for comments. */
+  get userName() {
+    return this.raw.get('userName', '')
+  }
+
   /**
    * Loads CSS content from workspace configuration or specpress defaults.
    * Appends the extension's diff.css for change tracking styling.

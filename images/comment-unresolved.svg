@@ -1,0 +1,6 @@
+<svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+  <path fill="#FFA500" d="M2 2h12v10H8l-3 3v-3H2V2z"/>
+  <circle cx="5" cy="7" r="1" fill="white"/>
+  <circle cx="8" cy="7" r="1" fill="white"/>
+  <circle cx="11" cy="7" r="1" fill="white"/>
+</svg>

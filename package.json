@@ -27,6 +27,35 @@
     "release": "node scripts/release.js"
   },
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "specpress-comments",
+          "title": "SpecPress Comments",
+          "icon": "images/comment-unresolved.svg"
+        }
+      ]
+    },
+    "views": {
+      "specpress-comments": [
+        {
+          "id": "specpressCommentFilter",
+          "name": "Filter",
+          "type": "webview"
+        },
+        {
+          "id": "specpressComments",
+          "name": "Comments",
+          "icon": "images/comment-unresolved.svg",
+          "contextualTitle": "SpecPress Comments"
+        },
+        {
+          "id": "specpressCommentDetail",
+          "name": "Details",
+          "type": "webview"
+        }
+      ]
+    },
     "customEditors": [
       {
         "viewType": "specpress.jsonTableEditor",
@@ -83,9 +112,80 @@
       {
         "command": "specpress.disableChangeTracking",
         "title": "SpecPress: Disable Change Tracking"
+      },
+      {
+        "command": "specpress.addComment",
+        "title": "SpecPress: Add Comment",
+        "icon": "$(add)"
+      },
+      {
+        "command": "specpress.validateCommentPositions",
+        "title": "SpecPress: Validate Comment Positions",
+        "icon": "$(search)"
+      },
+      {
+        "command": "specpress.reconfirmCommentPosition",
+        "title": "SpecPress: Reconfirm Comment Position",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "specpress.refreshCommentTree",
+        "title": "SpecPress: Refresh Comments",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "specpress.expandAllComments",
+        "title": "Expand All",
+        "icon": "$(expand-all)"
+      },
+      {
+        "command": "specpress.expandCurrentFile",
+        "title": "Expand Current File",
+        "icon": "$(file)"
+      },
+      {
+        "command": "specpress.openCommentJson",
+        "title": "Open Comment JSON"
+      },
+      {
+        "command": "specpress.showCommentFromHover",
+        "title": "Show Comment"
+      },
+      {
+        "command": "specpress.showDebugLog",
+        "title": "SpecPress: Show Debug Log"
       }
     ],
     "menus": {
+      "view/title": [
+        {
+          "command": "specpress.addComment",
+          "when": "view == specpressComments",
+          "group": "navigation@1"
+        },
+        {
+          "command": "specpress.expandCurrentFile",
+          "when": "view == specpressComments",
+          "group": "navigation@2"
+        },
+        {
+          "command": "specpress.expandAllComments",
+          "when": "view == specpressComments",
+          "group": "navigation@3"
+        },
+        {
+          "command": "specpress.refreshCommentTree",
+          "when": "view == specpressComments",
+          "group": "navigation@4"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "specpress.addComment",
+          "when": "view == specpressComments && viewItem == commentFile",
+          "group": "inline"
+        }
+      ],
       "explorer/context": [
         {
           "command": "specpress.previewMultiple",
@@ -146,6 +246,21 @@
           "command": "specpress.openOrCreateJsonTable",
           "when": "resourceLangId == 'markdown'",
           "group": "specpress@3"
+        },
+        {
+          "command": "specpress.addComment",
+          "when": "editorLangId == markdown || resourceExtname == '.asn'",
+          "group": "specpress@4"
+        },
+        {
+          "command": "specpress.validateCommentPositions",
+          "when": "editorLangId == markdown || resourceExtname == '.asn'",
+          "group": "specpress@5"
+        },
+        {
+          "command": "specpress.reconfirmCommentPosition",
+          "when": "editorLangId == markdown || resourceExtname == '.asn'",
+          "group": "specpress@6"
         }
       ]
     },
@@ -207,6 +322,26 @@
           "type": "string",
           "default": "",
           "description": "Default folder for HTML and DOCX export dialogs. Relative to workspace root or absolute. Overridden by the last chosen folder during the session."
+        },
+        "specpress.commentFolder": {
+          "type": "string",
+          "default": "comments",
+          "description": "Folder for comment files, relative to spec root parent or absolute."
+        },
+        "specpress.userId": {
+          "type": "string",
+          "default": "",
+          "description": "User ID for comments (no spaces, lowercase recommended)."
+        },
+        "specpress.userName": {
+          "type": "string",
+          "default": "",
+          "description": "Display name for comments."
+        },
+        "specpress.enableDebugLogging": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable debug logging to temp file for troubleshooting. Useful when running in Extension Development Host."
         }
       }
     },
