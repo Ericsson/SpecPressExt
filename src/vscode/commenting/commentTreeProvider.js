@@ -2,6 +2,7 @@ const vscode = require('vscode')
 const path = require('path')
 const fs = require('fs')
 const { logger } = require('../logger')
+const { STATUS } = require('./commentStyles')
 
 /**
  * Tree item representing a comment or file group
@@ -28,6 +29,7 @@ class CommentTreeProvider {
     this.filterUnresolvedOnly = false
     this.selectedCommentId = null // Track selected comment for bold styling
     this.suppressRefresh = false // Flag to prevent refresh during programmatic selection
+    this.validationCache = new Map() // Cache validation results per file
   }
 
   setSelectedComment(commentId, forceRefresh = false) {
@@ -55,6 +57,7 @@ class CommentTreeProvider {
   }
 
   refresh() {
+    this.validationCache.clear() // Clear validation cache on refresh
     this._onDidChangeTreeData.fire()
   }
 
@@ -125,21 +128,7 @@ class CommentTreeProvider {
         if (this.filterAuthor && !comment.authorId.toLowerCase().includes(this.filterAuthor)) {
           return false
         }
-        if (this.filterUnresolvedOnly) {
-          // Keep unresolved comments
-          if (!comment.resolved) {
-            return true
-          }
-          // Keep resolved comments that have unresolved replies
-          if (comment.resolved && !comment.replyTo) {
-            // Check if this parent has any unresolved replies
-            const hasUnresolvedReplies = allComments.some(c => 
-              c.replyTo === comment.commentId && !c.resolved
-            )
-            if (hasUnresolvedReplies) {
-              return true
-            }
-          }
+        if (this.filterUnresolvedOnly && comment.resolved) {
           return false
         }
         return true
@@ -171,7 +160,16 @@ class CommentTreeProvider {
         item.iconPath = new vscode.ThemeIcon('file')
         item.description = path.dirname(fileUri)
         item.tooltip = `${fileUri}\n${totalCount} comment${totalCount !== 1 ? 's' : ''}, ${unresolvedCount} unresolved`
-        item.contextValue = 'commentFile'
+        
+        // Check if any comments in this file have moved
+        const hasMoved = this.checkFileHasMovedComments(fileUri, specRoot)
+        if (hasMoved) {
+          item.contextValue = 'commentFileWithMoved'
+          item.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('errorForeground'))
+          item.tooltip += '\n⚠️ Some comments may have moved'
+        } else {
+          item.contextValue = 'commentFile'
+        }
 
         fileItems.push(item)
       }
@@ -212,14 +210,6 @@ class CommentTreeProvider {
   }
 
   /**
-   * Check if comment has unresolved replies (using cached data)
-   */
-  hasUnresolvedReplies(commentId, specRoot) {
-    const allComments = this.commentManager.getAllComments(specRoot)
-    return allComments.some(c => c.replyTo === commentId && !c.resolved)
-  }
-
-  /**
    * Get replies for a comment (using cached data)
    */
   async getRepliesForComment(commentElement) {
@@ -240,25 +230,25 @@ class CommentTreeProvider {
   createCommentItem(comment, specRoot) {
     const isSelected = this.selectedCommentId === comment.commentId
     const replyCount = this.countReplies(comment.commentId, specRoot)
-    const hasUnresolvedReplies = this.hasUnresolvedReplies(comment.commentId, specRoot)
     
-    // Determine icon based on resolved status and replies
+    // Use _statusKey stamped by updateCommentStatuses, fallback to computed
+    const statusKey = comment._statusKey || (comment.resolved ? 'resolved' : 'unresolved')
+    
+    // Use ThemeIcon with color matching our status scheme
     let iconPath
-    if (comment.resolved && hasUnresolvedReplies) {
-      // Parent resolved but has unresolved replies - yellow check
-      iconPath = new vscode.ThemeIcon('check', new vscode.ThemeColor('charts.yellow'))
-    } else if (comment.resolved) {
-      // Fully resolved - green check
-      iconPath = new vscode.ThemeIcon('check', new vscode.ThemeColor('testing.iconPassed'))
+    if (statusKey === 'moved') {
+      iconPath = new vscode.ThemeIcon('chat-sparkle-warning', new vscode.ThemeColor('errorForeground'))
+    } else if (statusKey === 'resolved') {
+      iconPath = new vscode.ThemeIcon('chat-sparkle', new vscode.ThemeColor('testing.iconPassed'))
     } else {
-      // Unresolved - red exclamation
-      iconPath = new vscode.ThemeIcon('error', new vscode.ThemeColor('errorForeground'))
+      // Unresolved - use yellow/orange color
+      iconPath = new vscode.ThemeIcon('comment', new vscode.ThemeColor('charts.yellow'))
     }
-    
-    const statusPrefix = isSelected ? '→ ' : ''
+
+    const selPrefix = isSelected ? '→ ' : ''
     const replyInfo = replyCount > 0 ? ` [R:${replyCount}]` : ''
     const preview = comment.commentText.substring(0, 50).replace(/\n/g, ' ')
-    const label = `${statusPrefix}Line ${comment.lineNumber + 1}${replyInfo}: ${preview}${comment.commentText.length > 50 ? '...' : ''}`
+    const label = `${selPrefix}Line ${comment.lineNumber + 1}${replyInfo}: ${preview}${comment.commentText.length > 50 ? '...' : ''}`
 
     // Parent comments are always non-collapsible (no tree children)
     const item = new CommentTreeItem(
@@ -323,13 +313,14 @@ class CommentTreeProvider {
    * Build tooltip for a comment
    */
   buildCommentTooltip(comment) {
-    const status = comment.resolved ? '✅ Resolved' : '❗ Open'
+    const statusKey = comment._statusKey || (comment.resolved ? 'resolved' : 'unresolved')
+    const s = STATUS[statusKey]
     const created = new Date(comment.createdAt).toLocaleString()
     const updated = comment.updatedAt !== comment.createdAt
       ? `\nUpdated: ${new Date(comment.updatedAt).toLocaleString()}`
       : ''
 
-    return `${status}\n${comment.authorName}\nCreated: ${created}${updated}\n\n${comment.commentText}`
+    return `${s.marker} ${s.label}\n${comment.authorName}\nCreated: ${created}${updated}\n\n${comment.commentText}`
   }
 
   /**
@@ -337,6 +328,41 @@ class CommentTreeProvider {
    */
   async getFileItems() {
     return this.getRootItems()
+  }
+
+  /**
+   * Check if a file has any moved comments (uses validation cache)
+   */
+  checkFileHasMovedComments(fileUri, specRoot) {
+    const cacheKey = `${specRoot}:${fileUri}`
+    
+    // Return cached result if available
+    if (this.validationCache.has(cacheKey)) {
+      return this.validationCache.get(cacheKey)
+    }
+    
+    // Check if there's an active editor for this file
+    const editor = vscode.window.visibleTextEditors.find(e => {
+      const editorPath = e.document.uri.fsPath
+      const editorRelative = path.relative(specRoot, editorPath).replace(/\\/g, '/')
+      return editorRelative === fileUri
+    })
+    
+    if (!editor) {
+      // No editor open, can't validate - assume no moved comments
+      this.validationCache.set(cacheKey, false)
+      return false
+    }
+    
+    // Get comments for this file
+    const allComments = this.commentManager.getAllComments(specRoot)
+    const fileComments = allComments.filter(c => c.fileUri === fileUri && !c.replyTo)
+    
+    // Check if any have moved status
+    const hasMoved = fileComments.some(c => c._statusKey === 'moved')
+    
+    this.validationCache.set(cacheKey, hasMoved)
+    return hasMoved
   }
 }
 

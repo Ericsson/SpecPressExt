@@ -1,5 +1,6 @@
 const vscode = require('vscode')
 const path = require('path')
+const { statusHoverIcon, STATUS } = require('./commentStyles')
 
 /**
  * Provides hover information for lines with comments.
@@ -40,10 +41,8 @@ class CommentHoverProvider {
       Math.abs((c.columnNumber || 0) - cursorColumn) === minDistance
     )
 
-    // Build hover content with clickable entries
+    // Build hover content
     const lines = []
-    lines.push('### 💬 Comments')
-    lines.push('')
 
     for (let i = 0; i < nearestParents.length; i++) {
       const parent = nearestParents[i]
@@ -61,38 +60,30 @@ class CommentHoverProvider {
 
     const markdown = new vscode.MarkdownString(lines.join('\n'))
     markdown.isTrusted = true
-    markdown.supportHtml = true
+    markdown.supportThemeIcons = true
 
     return new vscode.Hover(markdown)
   }
 
   renderCommentWithReplies(comment, allComments, specRoot, lines, depth) {
     const indent = '&nbsp;&nbsp;&nbsp;&nbsp;'.repeat(depth)
-    
-    // Determine status icon based on resolved state and replies
-    let statusIcon
-    if (comment.resolved) {
-      // Check if has unresolved replies
-      const allReplies = this.getAllReplies(comment.commentId, allComments)
-      const hasUnresolvedReplies = allReplies.some(r => !r.resolved)
-      
-      if (hasUnresolvedReplies) {
-        statusIcon = '✓ Resolved (has unresolved replies)'
-      } else {
-        statusIcon = '✅ Resolved'
-      }
-    } else {
-      statusIcon = '❗ Open'
-    }
+    const isReply = !!comment.replyTo
     
     const date = new Date(comment.createdAt).toLocaleDateString()
     const time = new Date(comment.createdAt).toLocaleTimeString()
-    const colInfo = comment.columnNumber !== undefined ? ` [Col ${comment.columnNumber}]` : ''
 
     // Create command URI to show this comment
     const commandUri = encodeURI(`command:specpress.showCommentFromHover?${JSON.stringify([comment.commentId, specRoot])}`)
     
-    lines.push(`${indent}[**${statusIcon}** — **${comment.authorName}**${colInfo} — ${date} ${time}](${commandUri})`)
+    if (isReply) {
+      // Replies don't have status
+      lines.push(`${indent}[**${comment.authorName}** — ${date} ${time}](${commandUri})`)
+    } else {
+      // Parent comments have status
+      const statusKey = comment._statusKey || (comment.resolved ? 'resolved' : 'unresolved')
+      const statusLabel = STATUS[statusKey].label
+      lines.push(`${indent}${statusHoverIcon(statusKey)} [**${statusLabel}** — **${comment.authorName}** — ${date} ${time}](${commandUri})`)
+    }
     
     if (comment.updatedAt !== comment.createdAt) {
       const editDate = new Date(comment.updatedAt).toLocaleDateString()
@@ -118,16 +109,6 @@ class CommentHoverProvider {
         this.renderCommentWithReplies(reply, allComments, specRoot, lines, depth + 1)
       }
     }
-  }
-
-  getAllReplies(parentId, allComments) {
-    const result = []
-    const directReplies = allComments.filter(c => c.replyTo === parentId)
-    for (const reply of directReplies) {
-      result.push(reply)
-      result.push(...this.getAllReplies(reply.commentId, allComments))
-    }
-    return result
   }
 }
 

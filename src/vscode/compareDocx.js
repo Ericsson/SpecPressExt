@@ -6,7 +6,9 @@ const { getRepoRoot } = require('specpress/lib/common/gitHelpers')
 const { collectFiles, concatenateFiles } = require('specpress/lib/common/specProcessor')
 const { MarkdownToDocxConverter } = require('specpress/lib/md2docx/md2docx')
 const { ensureMermaidBundle } = require('specpress/lib/md2docx/handlers/mermaidHandler')
-const { pickCommit, collectFilesFromUris, collectFilesFromCommitUris, extractFilesFromCommit, insertOmittedMarkers, makeMermaidRenderer } = require('./helpers')
+const { detectCRCoverPage } = require('specpress/lib/common/crCoverPageDetector')
+const { loadCRCoverPageData } = require('specpress/lib/common/crCoverPageLoader')
+const { pickCommit, collectFilesFromUris, collectFilesFromCommitUris, extractFilesFromCommit, insertOmittedMarkers, makeMermaidRenderer, findWinword } = require('./helpers')
 
 /**
  * Creates a fileResolver from a pre-extracted cache.
@@ -71,16 +73,9 @@ function makeCachedTextReader(cache) {
  * @param {vscode.Uri[]} [allUris]
  */
 async function compareDocx(state, config, context, uri, allUris) {
-  // Check for winword.exe via registry
-  let winwordPath
-  try {
-    winwordPath = execSync('reg query "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\Winword.exe" /ve', { encoding: 'utf8' })
-    const match = winwordPath.match(/REG_SZ\s+(.+)/)
-    winwordPath = match ? match[1].trim() : null
-  } catch (e) {
-    winwordPath = null
-  }
-  if (!winwordPath || !fs.existsSync(winwordPath)) {
+  // Check for winword.exe
+  const winwordPath = findWinword()
+  if (!winwordPath) {
     vscode.window.showErrorMessage('Microsoft Word (winword.exe) is not installed or not accessible.')
     return
   }
@@ -174,6 +169,16 @@ async function compareDocx(state, config, context, uri, allUris) {
         const specRoot = filesFromCommit.length > 0 ? config.getSpecRootForFile(filesFromCommit[0])
           : filesRevised.length > 0 ? config.getSpecRootForFile(filesRevised[0]) : ''
 
+        // Detect CR cover page for spec-root-level comparisons
+        let crCoverPageData = null
+        if (specRoot && config.isSpecRootSelection(uris)) {
+          const crFilePath = detectCRCoverPage(specRoot)
+          if (crFilePath) {
+            const crResult = loadCRCoverPageData(crFilePath)
+            if (crResult.valid) crCoverPageData = crResult.data
+          }
+        }
+
         const searchPaths = [...new Set(uris.map(u => {
           const p = u.fsPath
           return fs.existsSync(p) && fs.statSync(p).isDirectory() ? p : path.dirname(p)
@@ -196,7 +201,7 @@ async function compareDocx(state, config, context, uri, allUris) {
           fs.writeFileSync(tempMdOrig, contentCommit)
           try {
             const converter = new MarkdownToDocxConverter(mermaidConfig, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot), fileResolver, { updateFields: false })
-            await converter.convert(tempMdOrig, originalDocx, path.dirname(filesFromCommit[0]))
+            await converter.convert(tempMdOrig, originalDocx, path.dirname(filesFromCommit[0]), null, { crCoverPageData })
           } finally {
             if (fs.existsSync(tempMdOrig)) fs.unlinkSync(tempMdOrig)
           }
@@ -224,7 +229,7 @@ async function compareDocx(state, config, context, uri, allUris) {
           fs.writeFileSync(tempMdRev, contentRevised)
           try {
             const converter = new MarkdownToDocxConverter(mermaidConfig, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot), fileResolver, { updateFields: false })
-            await converter.convert(tempMdRev, revisedDocx, path.dirname(filesRevised[0]))
+            await converter.convert(tempMdRev, revisedDocx, path.dirname(filesRevised[0]), null, { crCoverPageData })
           } finally {
             if (fs.existsSync(tempMdRev)) fs.unlinkSync(tempMdRev)
           }

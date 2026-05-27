@@ -1,12 +1,13 @@
 const vscode = require('vscode')
 const path = require('path')
 const fs = require('fs')
+const { extractSnippet } = require('./snippetExtractor')
 
 /**
  * Command to reconfirm a comment's position at the current cursor location.
  * Useful after making changes to address a comment.
  */
-async function reconfirmCommentPosition(commentManager, decorationManager, codeLensProvider, config) {
+async function reconfirmCommentPosition(commentManager, decorationManager, config) {
   const editor = vscode.window.activeTextEditor
   if (!editor) {
     vscode.window.showErrorMessage('No active editor')
@@ -77,14 +78,8 @@ async function reconfirmCommentPosition(commentManager, decorationManager, codeL
     const lineNumber = editor.selection.active.line
     const columnNumber = editor.selection.active.character
 
-    // Extract ±20 characters around cursor position
-    const document = editor.document
-    const cursorOffset = document.offsetAt(editor.selection.active)
-    const startOffset = Math.max(0, cursorOffset - 20)
-    const endOffset = Math.min(document.getText().length, cursorOffset + 20)
-    const startPos = document.positionAt(startOffset)
-    const endPos = document.positionAt(endOffset)
-    const snippet = document.getText(new vscode.Range(startPos, endPos))
+    // Extract snippet using centralized function
+    const snippet = extractSnippet(editor.document, editor.selection.active)
 
     // Update comment file
     const commentPath = path.join(commentManager.getCommentFolder(specRoot), comment.commentId)
@@ -100,7 +95,6 @@ async function reconfirmCommentPosition(commentManager, decorationManager, codeL
 
     // Refresh UI
     await decorationManager.updateDecorations(editor, config)
-    codeLensProvider.refresh()
 
     vscode.window.showInformationMessage(
       `Comment position updated to Line ${lineNumber + 1}, Column ${columnNumber}`

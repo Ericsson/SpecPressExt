@@ -1,10 +1,17 @@
 const vscode = require('vscode')
+const { extractSnippet } = require('./snippetExtractor')
 
 /**
  * Validates if a comment is still at its original position.
  * Returns validation result with status and suggested position if moved.
+ * Reply comments are always valid (they follow their parent).
  */
 function validateCommentPosition(comment, document) {
+  // Reply comments are associated with their parent, not with a text position
+  if (comment.replyTo) {
+    return { valid: true, status: 'reply' }
+  }
+
   const lineNumber = comment.lineNumber
   const columnNumber = comment.columnNumber || 0
   const snippet = comment.lineSnippet
@@ -18,14 +25,9 @@ function validateCommentPosition(comment, document) {
     return { valid: false, status: 'line-out-of-range', suggestedPosition: null }
   }
 
-  // Get text at original position
+  // Get text at original position using centralized snippet extraction
   const position = new vscode.Position(lineNumber, columnNumber)
-  const offset = document.offsetAt(position)
-  const startOffset = Math.max(0, offset - 20)
-  const endOffset = Math.min(document.getText().length, offset + 20)
-  const startPos = document.positionAt(startOffset)
-  const endPos = document.positionAt(endOffset)
-  const currentSnippet = document.getText(new vscode.Range(startPos, endPos))
+  const currentSnippet = extractSnippet(document, position)
 
   // Exact match - comment is still at correct position
   if (currentSnippet === snippet) {
@@ -48,10 +50,10 @@ function validateCommentPosition(comment, document) {
 }
 
 /**
- * Searches for a snippet in nearby lines (±10 lines from original position).
+ * Searches for a snippet in nearby lines (±50 lines from original position).
  * Returns the position if found, null otherwise.
  */
-function findSnippetNearby(snippet, document, originalLine, originalColumn, searchRadius = 10) {
+function findSnippetNearby(snippet, document, originalLine, originalColumn, searchRadius = 50) {
   const startLine = Math.max(0, originalLine - searchRadius)
   const endLine = Math.min(document.lineCount - 1, originalLine + searchRadius)
 
@@ -65,12 +67,7 @@ function findSnippetNearby(snippet, document, originalLine, originalColumn, sear
     // Try to find snippet at various column positions
     for (let col = 0; col <= lineText.length; col++) {
       const position = new vscode.Position(line, col)
-      const offset = document.offsetAt(position)
-      const startOffset = Math.max(0, offset - 20)
-      const endOffset = Math.min(document.getText().length, offset + 20)
-      const startPos = document.positionAt(startOffset)
-      const endPos = document.positionAt(endOffset)
-      const candidateSnippet = document.getText(new vscode.Range(startPos, endPos))
+      const candidateSnippet = extractSnippet(document, position)
       
       // Exact match
       if (candidateSnippet === snippet) {

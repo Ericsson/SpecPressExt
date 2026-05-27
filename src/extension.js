@@ -13,7 +13,6 @@ const { getRepoRoot } = require('specpress/lib/common/gitHelpers')
 const { JsonTableEditorProvider } = require('./vscode/jsonTableEditor')
 const { CommentManager } = require('./vscode/commenting/commentManager')
 const { CommentDecorationManager } = require('./vscode/commenting/commentDecorations')
-const { CommentCodeLensProvider } = require('./vscode/commenting/commentCodeLensProvider')
 const { CommentHoverProvider } = require('./vscode/commenting/commentHoverProvider')
 const { CommentTreeProvider } = require('./vscode/commenting/commentTreeProvider')
 const { CommentDetailViewProvider } = require('./vscode/commenting/commentDetailViewProvider')
@@ -23,6 +22,7 @@ const { handleCommentClick } = require('./vscode/commenting/handleCommentClick')
 const { validateCommentPositions } = require('./vscode/commenting/validateCommentPositions')
 const { reconfirmCommentPosition } = require('./vscode/commenting/reconfirmCommentPosition')
 const { selectCommentInTree, showCommentInSidebar } = require('./vscode/commenting/commentHelpers')
+const { extractSnippet } = require('./vscode/commenting/snippetExtractor')
 const { logger } = require('./vscode/logger')
 
 const config = new ConfigLoader()
@@ -37,8 +37,6 @@ let commentMgr = null
 /** @type {CommentDecorationManager|null} */
 let decorationMgr = null
 
-/** @type {CommentCodeLensProvider|null} */
-let codeLensProvider = null
 
 /** @type {CommentTreeProvider|null} */
 let commentTreeProvider = null
@@ -64,14 +62,35 @@ function activate(context) {
 
   // Initialize comment system
   commentMgr = new CommentManager(config)
+  commentMgr.startWatching()
   decorationMgr = new CommentDecorationManager(commentMgr, extensionDir)
-  codeLensProvider = new CommentCodeLensProvider(commentMgr, config)
   commentTreeProvider = new CommentTreeProvider(commentMgr, config)
   commentDetailViewProvider = new CommentDetailViewProvider(commentMgr, config, extensionDir)
   commentFilterViewProvider = new CommentFilterViewProvider(commentTreeProvider)
   
   // Connect tree provider to detail view provider for bold styling
   commentDetailViewProvider.setTreeProvider(commentTreeProvider)
+
+  // Subscribe views to CommentManager changes
+  context.subscriptions.push(
+    commentMgr.onDidChange(() => {
+      // Clear and refresh decorations for active editor
+      const editor = vscode.window.activeTextEditor
+      if (editor) {
+        decorationMgr.clear()
+        decorationMgr.updateDecorations(editor, config)
+      }
+      
+      // Refresh tree view
+      commentTreeProvider.refresh()
+      
+      // Refresh detail view if showing a comment
+      if (commentDetailViewProvider.currentComment && commentDetailViewProvider.currentSpecRoot) {
+        commentDetailViewProvider.updateView()
+      }
+    })
+  )
+  context.subscriptions.push(commentMgr)
 
   // Register tree view for comments
   const treeView = vscode.window.createTreeView('specpressComments', {
@@ -123,14 +142,6 @@ function activate(context) {
     )
   )
 
-  // Register CodeLens provider for comment indicators
-  context.subscriptions.push(
-    vscode.languages.registerCodeLensProvider(
-      [{ language: 'markdown' }, { pattern: '**/*.asn' }],
-      codeLensProvider
-    )
-  )
-
   // Register hover provider for comment tooltips
   const hoverProvider = new CommentHoverProvider(commentMgr, config)
   context.subscriptions.push(
@@ -143,58 +154,57 @@ function activate(context) {
   // Update decorations when editor changes
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(async editor => {
-      if (editor) await decorationMgr.updateDecorations(editor, config)
+      if (editor) {
+        decorationMgr.clear()
+        await decorationMgr.updateDecorations(editor, config)
+      }
     })
   )
 
   // Update decorations when document is saved
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument(async doc => {
-      if (doc.fileName.endsWith('.json')) {
-        // Comment file might have been saved, invalidate cache and refresh all
-        const specRoots = config.resolveSpecRoots()
-        for (const specRoot of specRoots) {
-          const commentFolder = commentMgr.getCommentFolder(specRoot)
-          if (doc.fileName.startsWith(commentFolder)) {
-            commentMgr.invalidateCache(specRoot)
-            break
+      const editor = vscode.window.activeTextEditor
+      if (editor && editor.document === doc) {
+        const filePath = doc.uri.fsPath
+        if (config.isInsideSpecRoot(filePath)) {
+          const specRoot = config.getSpecRootForFile(filePath)
+          
+          // Auto-update comment positions if safe (fires onDidChange if updates occur)
+          const result = await commentMgr.autoUpdateOnSave(doc, specRoot)
+          
+          if (result.count > 0) {
+            const details = result.details.join(', ')
+            vscode.window.showInformationMessage(
+              `Auto-updated ${result.count} comment position(s): ${details}`,
+              'OK'
+            )
           }
         }
-        const editor = vscode.window.activeTextEditor
-        if (editor) {
-          await decorationMgr.updateDecorations(editor, config)
-          codeLensProvider.refresh()
-        }
-        // Refresh tree view
+        
+        // Update decorations and tree (onDidChange already handled this if auto-update occurred)
+        decorationMgr.clear()
+        await decorationMgr.updateDecorations(editor, config)
         commentTreeProvider.refresh()
       }
     })
   )
 
-  // Watch comment folder for changes
-  const specRoots = config.resolveSpecRoots()
-  for (const specRoot of specRoots) {
-    const commentFolder = commentMgr.getCommentFolder(specRoot)
-    const watcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(commentFolder, '*.json')
-    )
-    watcher.onDidCreate(() => {
-      commentMgr.invalidateCache(specRoot)
-      commentTreeProvider.refresh()
+  // Update decorations and tree when document content changes
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeTextDocument(async e => {
+      const editor = vscode.window.activeTextEditor
+      if (editor && editor.document === e.document) {
+        await decorationMgr.updateDecorations(editor, config)
+        // Refresh tree to update moved status icons
+        commentTreeProvider.refresh()
+      }
     })
-    watcher.onDidChange(() => {
-      commentMgr.invalidateCache(specRoot)
-      commentTreeProvider.refresh()
-    })
-    watcher.onDidDelete(() => {
-      commentMgr.invalidateCache(specRoot)
-      commentTreeProvider.refresh()
-    })
-    context.subscriptions.push(watcher)
-  }
+  )
 
   // Initial decoration for active editor
   if (vscode.window.activeTextEditor) {
+    decorationMgr.clear()
     decorationMgr.updateDecorations(vscode.window.activeTextEditor, config)
   }
 
@@ -222,11 +232,12 @@ function activate(context) {
       }
       const isMarkdown = editor.document.languageId === 'markdown'
       const isAsn = editor.document.fileName.endsWith('.asn')
-      if (!isMarkdown && !isAsn) {
+      const isCR = previewMgr.isCRJsonFile(editor.document.uri.fsPath)
+      if (!isMarkdown && !isAsn && !isCR) {
         vscode.window.showErrorMessage('Open a markdown or ASN.1 file first')
         return
       }
-      if (!config.isInsideSpecRoot(editor.document.uri.fsPath)) {
+      if (!isCR && !config.isInsideSpecRoot(editor.document.uri.fsPath)) {
         vscode.window.showWarningMessage('SpecPress: This file is outside the configured specificationRootPath.')
         return
       }
@@ -401,17 +412,14 @@ function activate(context) {
     }),
 
     vscode.commands.registerCommand('specpress.addComment', async () => {
-      await addComment(commentMgr, decorationMgr, codeLensProvider, commentDetailViewProvider, commentTreeProvider, treeView, config)
-      // Refresh tree view after adding comment
-      commentTreeProvider.refresh()
+      await addComment(commentMgr, decorationMgr, commentDetailViewProvider, commentTreeProvider, treeView, config)
     }),
 
     vscode.commands.registerCommand('specpress.validateCommentPositions', async () => {
-      await validateCommentPositions(commentMgr, decorationMgr, codeLensProvider, config)
-      commentTreeProvider.refresh()
+      await validateCommentPositions(commentMgr, decorationMgr, config)
     }),
 
-    vscode.commands.registerCommand('specpress.reconfirmCommentPosition', async (comment, specRoot) => {
+    vscode.commands.registerCommand('specpress.setCommentAnchor', async (comment, specRoot) => {
       // If called from detail view with comment object, use it directly
       if (comment && specRoot) {
         const editor = vscode.window.activeTextEditor
@@ -423,23 +431,30 @@ function activate(context) {
         const userId = config.userId
         if (comment.authorId !== userId) {
           const confirm = await vscode.window.showWarningMessage(
-            `Reconfirm position for comment by ${comment.authorName}?`,
-            { modal: true, detail: 'This will update the comment\'s position to your current cursor location.' },
-            'Reconfirm'
+            `Set anchor position for comment by ${comment.authorName}?`,
+            { modal: true, detail: 'This will update the comment\'s anchor position to your current cursor location.' },
+            'Set Anchor'
           )
-          if (confirm !== 'Reconfirm') return
+          if (confirm !== 'Set Anchor') return
         }
 
         try {
+          const oldLine = comment.lineNumber
+          const oldCol = comment.columnNumber !== undefined ? comment.columnNumber : 0
           const lineNumber = editor.selection.active.line
           const columnNumber = editor.selection.active.character
-          const document = editor.document
-          const cursorOffset = document.offsetAt(editor.selection.active)
-          const startOffset = Math.max(0, cursorOffset - 20)
-          const endOffset = Math.min(document.getText().length, cursorOffset + 20)
-          const startPos = document.positionAt(startOffset)
-          const endPos = document.positionAt(endOffset)
-          const snippet = document.getText(new vscode.Range(startPos, endPos))
+          
+          // Show confirmation with old and new positions
+          const oldSnippet = (comment.lineSnippet || '').substring(0, 40).replace(/[\r\n]/g, '↵')
+          const confirm = await vscode.window.showInformationMessage(
+            `Move comment "${oldSnippet}${comment.lineSnippet && comment.lineSnippet.length > 40 ? '...' : ''}" from Line ${oldLine + 1}, Col ${oldCol} to Line ${lineNumber + 1}, Col ${columnNumber}?`,
+            { modal: true },
+            'Move'
+          )
+          if (confirm !== 'Move') return
+          
+          // Extract snippet using centralized function
+          const snippet = extractSnippet(editor.document, editor.selection.active)
 
           const commentPath = path.join(commentMgr.getCommentFolder(specRoot), comment.commentId)
           const content = JSON.parse(fs.readFileSync(commentPath, 'utf8'))
@@ -453,8 +468,6 @@ function activate(context) {
           commentMgr.invalidateCache(specRoot)
 
           await decorationMgr.updateDecorations(editor, config)
-          codeLensProvider.refresh()
-          commentTreeProvider.refresh()
 
           // Refresh detail view
           const updatedComment = commentMgr.getAllComments(specRoot).find(c => c.commentId === comment.commentId)
@@ -463,16 +476,20 @@ function activate(context) {
           }
 
           vscode.window.showInformationMessage(
-            `Comment position updated to Line ${lineNumber + 1}, Column ${columnNumber}`
+            `Comment anchor moved to Line ${lineNumber + 1}, Column ${columnNumber}`
           )
         } catch (e) {
           vscode.window.showErrorMessage(`Failed to update position: ${e.message}`)
         }
       } else {
         // Called from command palette - show picker
-        await reconfirmCommentPosition(commentMgr, decorationMgr, codeLensProvider, config)
-        commentTreeProvider.refresh()
+        await reconfirmCommentPosition(commentMgr, decorationMgr, config)
       }
+    }),
+
+    // Legacy command name for backward compatibility
+    vscode.commands.registerCommand('specpress.reconfirmCommentPosition', async (comment, specRoot) => {
+      await vscode.commands.executeCommand('specpress.setCommentAnchor', comment, specRoot)
     }),
 
     vscode.commands.registerCommand('specpress.handleCommentClick', async (uri, lineNum) => {
@@ -481,12 +498,8 @@ function activate(context) {
 
     vscode.commands.registerCommand('specpress.refreshCommentTree', () => {
       commentTreeProvider.refresh()
-      // Also refresh decorations in active editor
       const editor = vscode.window.activeTextEditor
-      if (editor) {
-        decorationMgr.updateDecorations(editor, config)
-        codeLensProvider.refresh()
-      }
+      if (editor) decorationMgr.updateDecorations(editor, config)
     }),
 
     vscode.commands.registerCommand('specpress.expandAllComments', async () => {

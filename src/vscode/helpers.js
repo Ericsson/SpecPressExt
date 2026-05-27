@@ -23,14 +23,41 @@ function formatExportTimestamp() {
  * @param {string} message - Notification text.
  * @param {string} folderPath - Directory to open on button click.
  */
-async function showExportNotification(message, folderPath) {
-  const choice = await vscode.window.showInformationMessage(message, 'Open Folder')
-  if (choice === 'Open Folder') {
+async function showExportNotification(message, folderPath, filePath) {
+  const buttons = ['Open Folder']
+  let winwordPath = null
+  if (filePath && filePath.endsWith('.docx')) {
+    winwordPath = findWinword()
+    if (winwordPath) buttons.unshift('Open in Word')
+  }
+  const choice = await vscode.window.showInformationMessage(message, ...buttons)
+  if (choice === 'Open in Word') {
+    require('child_process').exec(`"${winwordPath}" "${filePath}"`)
+  } else if (choice === 'Open Folder') {
     const { exec } = require('child_process')
     if (process.platform === 'win32') exec(`explorer "${folderPath}"`)
     else if (process.platform === 'darwin') exec(`open "${folderPath}"`)
     else if (process.platform === 'linux') exec(`xdg-open "${folderPath}"`)
     else vscode.env.openExternal(vscode.Uri.file(folderPath))
+  }
+}
+
+/**
+ * Detects the path to winword.exe via the Windows registry.
+ * Returns the path if found and the file exists, or null otherwise.
+ */
+function findWinword() {
+  if (process.platform !== 'win32') return null
+  try {
+    const result = require('child_process').execSync(
+      'reg query "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\Winword.exe" /ve',
+      { encoding: 'utf8' }
+    )
+    const match = result.match(/REG_SZ\s+(.+)/)
+    const p = match ? match[1].trim() : null
+    return (p && require('fs').existsSync(p)) ? p : null
+  } catch (e) {
+    return null
   }
 }
 
@@ -288,5 +315,6 @@ module.exports = {
   collectFilesFromCommitUris,
   extractFilesFromCommit,
   insertOmittedMarkers,
-  makeMermaidRenderer
+  makeMermaidRenderer,
+  findWinword
 }

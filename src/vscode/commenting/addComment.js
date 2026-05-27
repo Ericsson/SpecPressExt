@@ -1,11 +1,12 @@
 const vscode = require('vscode')
 const path = require('path')
 const { showCommentInSidebar } = require('./commentHelpers')
+const { extractSnippet } = require('./snippetExtractor')
 
 /**
  * Command to add a new comment at the current cursor position.
  */
-async function addComment(commentManager, decorationManager, codeLensProvider, commentDetailViewProvider, commentTreeProvider, treeView, config) {
+async function addComment(commentManager, decorationManager, commentDetailViewProvider, commentTreeProvider, treeView, config) {
   const editor = vscode.window.activeTextEditor
   if (!editor) return
 
@@ -30,14 +31,8 @@ async function addComment(commentManager, decorationManager, codeLensProvider, c
   const lineNumber = editor.selection.active.line
   const columnNumber = editor.selection.active.character
 
-  // Extract ±20 characters around cursor position (can span multiple lines)
-  const document = editor.document
-  const cursorOffset = document.offsetAt(editor.selection.active)
-  const startOffset = Math.max(0, cursorOffset - 20)
-  const endOffset = Math.min(document.getText().length, cursorOffset + 20)
-  const startPos = document.positionAt(startOffset)
-  const endPos = document.positionAt(endOffset)
-  const snippet = document.getText(new vscode.Range(startPos, endPos))
+  // Extract snippet using centralized function
+  const snippet = extractSnippet(editor.document, editor.selection.active)
 
   // Get spec root to compute relative URI
   const specRoot = config.getSpecRootForFile(filePath)
@@ -69,9 +64,8 @@ async function addComment(commentManager, decorationManager, codeLensProvider, c
 
     vscode.window.showInformationMessage('Comment added')
 
-    // Refresh decorations and CodeLens
+    // Refresh decorations
     await decorationManager.updateDecorations(editor, config)
-    codeLensProvider.refresh()
 
     // Show in sidebar and select in tree
     await showCommentInSidebar(newComment, specRoot, commentDetailViewProvider, commentTreeProvider, treeView)

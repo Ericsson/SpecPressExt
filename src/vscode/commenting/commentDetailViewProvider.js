@@ -2,6 +2,7 @@ const vscode = require('vscode')
 const path = require('path')
 const fs = require('fs')
 const { getToolbarCss, getToolbarScript } = require('../markdownEditorToolbar')
+const { statusHtml, STATUS } = require('./commentStyles')
 
 /**
  * Webview provider for comment details in the sidebar
@@ -43,8 +44,8 @@ class CommentDetailViewProvider {
         case 'reply':
           await this.handleReplyToParent(message.parentCommentId)
           break
-        case 'reconfirmPosition':
-          await this.reconfirmCommentPosition(message.commentId)
+        case 'setAnchor':
+          await this.setCommentAnchor(message.commentId)
           break
         case 'startEdit':
           // Just refresh to show edit mode - state is managed in webview
@@ -176,6 +177,12 @@ class CommentDetailViewProvider {
 
       if (!comment) return
 
+      // Only parent comments can be resolved
+      if (comment.replyTo) {
+        vscode.window.showErrorMessage('Reply comments cannot be resolved')
+        return
+      }
+
       // Warn when modifying another author's comment
       if (comment.authorId !== userId) {
         const action = resolved ? 'Resolve' : 'Unresolve'
@@ -185,37 +192,6 @@ class CommentDetailViewProvider {
           action
         )
         if (confirm !== action) return
-      }
-
-      // Check for unresolved child comments when marking as resolved
-      if (resolved) {
-        const allReplies = this.getAllReplies(comment.commentId, allComments)
-        const unresolvedReplies = allReplies.filter(r => !r.resolved)
-
-        if (unresolvedReplies.length > 0) {
-          const ownUnresolved = unresolvedReplies.filter(r => r.authorId === userId)
-
-          let message = `This comment has ${unresolvedReplies.length} unresolved ${unresolvedReplies.length === 1 ? 'reply' : 'replies'}.`
-          if (ownUnresolved.length > 0) {
-            message += ` Resolve your ${ownUnresolved.length} ${ownUnresolved.length === 1 ? 'reply' : 'replies'} too?`
-          }
-
-          const options = ownUnresolved.length > 0 ? ['Yes', 'No', 'Cancel'] : ['OK', 'Cancel']
-          const result = await vscode.window.showInformationMessage(message, { modal: true }, ...options)
-
-          if (result === 'Cancel') return
-
-          if (result === 'Yes' && ownUnresolved.length > 0) {
-            for (const reply of ownUnresolved) {
-              await this.commentManager.resolveComment(
-                reply.commentId,
-                this.currentSpecRoot,
-                true,
-                userName
-              )
-            }
-          }
-        }
       }
 
       await this.commentManager.resolveComment(
@@ -303,15 +279,15 @@ class CommentDetailViewProvider {
     }
   }
 
-  async reconfirmCommentPosition(commentId) {
+  async setCommentAnchor(commentId) {
     if (!this.currentSpecRoot) return
 
     const allComments = this.commentManager.getAllComments(this.currentSpecRoot)
     const comment = allComments.find(c => c.commentId === commentId)
     if (!comment) return
 
-    // Trigger the reconfirm command which will show the UI
-    vscode.commands.executeCommand('specpress.reconfirmCommentPosition', comment, this.currentSpecRoot)
+    // Trigger the set anchor command which will show the UI
+    vscode.commands.executeCommand('specpress.setCommentAnchor', comment, this.currentSpecRoot)
   }
 
   async handleReplyToParent(parentCommentId) {
@@ -337,10 +313,6 @@ class CommentDetailViewProvider {
     try {
       await this.commentManager.createReply(
         parentCommentId,
-        parentComment.fileUri,
-        parentComment.lineNumber,
-        parentComment.columnNumber,
-        parentComment.lineSnippet,
         replyText,
         this.currentSpecRoot
       )
@@ -393,15 +365,16 @@ class CommentDetailViewProvider {
     const MarkdownIt = require('markdown-it')
     const md = new MarkdownIt()
 
-    // Extract context around column position
+    // Extract full line snippet and replace line breaks with visible symbol
     let contextSnippet = comment.lineSnippet || ''
-    if (comment.columnNumber !== undefined && comment.lineSnippet) {
+    contextSnippet = contextSnippet.replace(/\r\n/g, '↵').replace(/[\r\n]/g, '↵')
+    
+    // Add column marker if column number is defined
+    if (comment.columnNumber !== undefined && contextSnippet) {
       const col = comment.columnNumber
-      const start = Math.max(0, col - 20)
-      const end = Math.min(comment.lineSnippet.length, col + 20)
-      const before = comment.lineSnippet.substring(start, col)
-      const after = comment.lineSnippet.substring(col, end)
-      contextSnippet = (start > 0 ? '...' : '') + before + '|' + after + (end < comment.lineSnippet.length ? '...' : '')
+      if (col >= 0 && col <= contextSnippet.length) {
+        contextSnippet = contextSnippet.substring(0, col) + '|' + contextSnippet.substring(col)
+      }
     }
 
     // Build HTML for parent comment
@@ -424,16 +397,21 @@ class CommentDetailViewProvider {
       border-bottom: 1px solid var(--vscode-panel-border);
       color: var(--vscode-descriptionForeground);
     }
+    .location-buttons {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+    }
     .comment-block {
       margin-bottom: 16px;
-      border-left: 3px solid #e74c3c;
+      border-left: 3px solid #FFA500;
       padding-left: 12px;
     }
     .comment-block.resolved {
-      border-left-color: #27ae60;
+      border-left-color: #2dcd32;
     }
-    .comment-block.resolved-with-unresolved {
-      border-left-color: #fbc02d;
+    .comment-block.reply {
+      border-left-color: var(--vscode-foreground);
     }
     .comment-header {
       font-size: 0.85em;
@@ -537,6 +515,15 @@ class CommentDetailViewProvider {
 <body>
   <div class="location">
     📍 Line ${comment.lineNumber + 1}, Col ${comment.columnNumber !== undefined ? comment.columnNumber : 0} — <code>${this.escapeHtml(contextSnippet)}</code>
+    <div class="location-buttons">
+      ${comment.resolved ? `
+        <button onclick="resolveComment('${comment.commentId}', false)">🔄 Unresolve</button>
+      ` : `
+        <button class="primary" onclick="resolveComment('${comment.commentId}', true)">✅ Resolve</button>
+      `}
+      <button onclick="replyToComment('${comment.commentId}')">↩️ Reply</button>
+      <button onclick="setAnchor('${comment.commentId}')">📍 Set Anchor Position</button>
+    </div>
   </div>
 `
 
@@ -571,8 +558,8 @@ class CommentDetailViewProvider {
       vscode.postMessage({ type: 'reply', parentCommentId: commentId });
     }
     
-    function reconfirmPosition(commentId) {
-      vscode.postMessage({ type: 'reconfirmPosition', commentId });
+    function setAnchor(commentId) {
+      vscode.postMessage({ type: 'setAnchor', commentId });
     }
     
     function openJson(commentId) {
@@ -736,21 +723,20 @@ class CommentDetailViewProvider {
   }
 
   renderCommentBlock(comment, md, depth, allComments) {
+    const isReply = !!comment.replyTo
     const hasReplies = allComments.some(c => c.replyTo === comment.commentId)
-    const allReplies = this.getAllReplies(comment.commentId, allComments)
-    const hasUnresolvedReplies = allReplies.some(r => !r.resolved)
 
-    // Determine icon and CSS class - consistent with tree and hover
-    let resolvedIcon = '<span style="color: #ff1100;">❗</span>' // Red exclamation for unresolved
+    // Only parent comments have status
+    let statusKey = null
+    let resolvedIcon = ''
     let cssClass = ''
-    if (comment.resolved) {
-      if (hasUnresolvedReplies) {
-        resolvedIcon = '<span style="color: #fbc02d;">✓</span>' // Yellow checkmark for resolved with unresolved replies
-        cssClass = ' resolved-with-unresolved'
-      } else {
-        resolvedIcon = '<span style="color: #2dcd32;">✅</span>' // Green check for fully resolved
-        cssClass = ' resolved'
-      }
+    
+    if (!isReply) {
+      statusKey = comment._statusKey || (comment.resolved ? 'resolved' : 'unresolved')
+      resolvedIcon = statusHtml(statusKey)
+      cssClass = statusKey === 'resolved' ? ' resolved' : ''
+    } else {
+      cssClass = ' reply'
     }
 
     const createdDate = new Date(comment.createdAt).toLocaleString()
@@ -761,19 +747,13 @@ class CommentDetailViewProvider {
     return `
   <div class="comment-block${cssClass}" style="margin-left: ${marginLeft}px;" data-comment-id="${comment.commentId}" data-original-text="${escapedForAttr}">
     <div class="comment-header">
-      <span class="status-icon">${resolvedIcon}</span> <strong>${comment.authorName}</strong> — ${createdDate}
+      ${!isReply ? `<span class="status-icon">${resolvedIcon}</span> ` : ''}<strong>${comment.authorName}</strong> — ${createdDate}
     </div>
     <div class="comment-content" id="content-${comment.commentId}" title="Double-click to edit">
       ${renderedText}
     </div>
     <div class="buttons" id="buttons-${comment.commentId}">
-      ${comment.resolved ? `
-        <button onclick="resolveComment('${comment.commentId}', false)">🔄 Unresolve</button>
-      ` : `
-        <button class="primary" onclick="resolveComment('${comment.commentId}', true)">✅ Resolve</button>
-      `}
       <button onclick="replyToComment('${comment.commentId}')">↩️ Reply</button>
-      ${!comment.replyTo ? `<button onclick="reconfirmPosition('${comment.commentId}')">📍 Reconfirm Position</button>` : ''}
       <button onclick="openJson('${comment.commentId}')">📄 JSON</button>
       ${!hasReplies ? `<button onclick="deleteComment('${comment.commentId}')">🗑️ Delete</button>` : ''}
     </div>

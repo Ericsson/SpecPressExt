@@ -181,6 +181,16 @@
       ],
       "view/item/context": [
         {
+          "command": "specpress.validateCommentPositions",
+          "when": "view == specpressComments && viewItem == commentFileWithMoved",
+          "group": "inline"
+        },
+        {
+          "command": "specpress.validateCommentPositions",
+          "when": "view == specpressComments && viewItem == commentFileWithMoved",
+          "group": "1_validation"
+        },
+        {
           "command": "specpress.addComment",
           "when": "view == specpressComments && viewItem == commentFile",
           "group": "inline"
@@ -325,8 +335,8 @@
         },
         "specpress.commentFolder": {
           "type": "string",
-          "default": "comments",
-          "description": "Folder for comment files, relative to spec root parent or absolute."
+          "default": "",
+          "description": "Folder for comment files. Required for commenting feature. Relative paths are resolved from spec root parent (e.g., 'comments' creates a sibling folder). Absolute paths are allowed but use with caution. Security note: Comments are stored outside spec root by default."
         },
         "specpress.userId": {
           "type": "string",
@@ -345,6 +355,12 @@
         }
       }
     },
+    "jsonValidation": [
+      {
+        "fileMatch": "**/history/CR*.json",
+        "url": "./node_modules/specpress/lib/templates/crCoverPageSchema.json"
+      }
+    ],
     "keybindings": [
       {
         "command": "specpress.restoreMultiPreview",
