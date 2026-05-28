@@ -6,9 +6,8 @@ const { getRepoRoot } = require('specpress/lib/common/gitHelpers')
 const { collectFiles, concatenateFiles } = require('specpress/lib/common/specProcessor')
 const { MarkdownToDocxConverter } = require('specpress/lib/md2docx/md2docx')
 const { ensureMermaidBundle } = require('specpress/lib/md2docx/handlers/mermaidHandler')
-const { detectCRCoverPage } = require('specpress/lib/common/crCoverPageDetector')
-const { loadCRCoverPageData } = require('specpress/lib/common/crCoverPageLoader')
 const { pickCommit, collectFilesFromUris, collectFilesFromCommitUris, extractFilesFromCommit, insertOmittedMarkers, makeMermaidRenderer, findWinword } = require('./helpers')
+const { selectCoverPage } = require('./coverPageSelector')
 
 /**
  * Creates a fileResolver from a pre-extracted cache.
@@ -169,15 +168,11 @@ async function compareDocx(state, config, context, uri, allUris) {
         const specRoot = filesFromCommit.length > 0 ? config.getSpecRootForFile(filesFromCommit[0])
           : filesRevised.length > 0 ? config.getSpecRootForFile(filesRevised[0]) : ''
 
-        // Detect CR cover page for spec-root-level comparisons
-        let crCoverPageData = null
-        if (specRoot && config.isSpecRootSelection(uris)) {
-          const crFilePath = detectCRCoverPage(specRoot)
-          if (crFilePath) {
-            const crResult = loadCRCoverPageData(crFilePath)
-            if (crResult.valid) crCoverPageData = crResult.data
-          }
-        }
+        // Select cover page (CR, standard front page, or none)
+        const coverPageChoice = await selectCoverPage(config, specRoot)
+        if (!coverPageChoice) return // User cancelled
+
+        const crCoverPageData = coverPageChoice.crData || null
 
         const searchPaths = [...new Set(uris.map(u => {
           const p = u.fsPath

@@ -6,10 +6,9 @@ const { getRepoRoot, getFileFromCommit } = require('specpress/lib/common/gitHelp
 const { collectFiles, concatenateFiles, formatExportMessage } = require('specpress/lib/common/specProcessor')
 const { MarkdownToDocxConverter } = require('specpress/lib/md2docx/md2docx')
 const { ensureMermaidBundle } = require('specpress/lib/md2docx/handlers/mermaidHandler')
-const { buildFrontPageDocx } = require('specpress/lib/md2docx/frontPage')
-const { detectCRCoverPage } = require('specpress/lib/common/crCoverPageDetector')
 const { loadCRCoverPageData } = require('specpress/lib/common/crCoverPageLoader')
 const { pickCommit, collectFilesFromUris, collectFilesFromCommitUris, insertOmittedMarkers, makeMermaidRenderer, formatExportTimestamp, showExportNotification } = require('./helpers')
+const { selectCoverPage } = require('./coverPageSelector')
 
 /**
  * Handles the DOCX export command.
@@ -134,101 +133,12 @@ async function exportDocx(state, config, context, uri, allUris) {
 
           const converter = new MarkdownToDocxConverter(mermaidConfig, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot), fileResolver)
 
-          let frontPage = null
-          let crCoverPageData = null
-          
-          if (config.isSpecRootSelection(uris)) {
-            // Detect what's available
-            const crFilePath = specRoot ? detectCRCoverPage(specRoot) : null
-            const hasFrontPageData = config.loadFrontPageData() !== null
-            
-            // Build options list with availability status
-            const options = []
-            
-            if (crFilePath) {
-              // Validate CR cover page data
-              const crResult = loadCRCoverPageData(crFilePath)
-              
-              if (crResult.valid) {
-                options.push({
-                  label: `$(file) CR Cover Page (${path.basename(crFilePath)})`,
-                  description: '',
-                  value: 'cr',
-                  crData: crResult.data
-                })
-              } else {
-                options.push({
-                  label: `$(error) CR Cover Page (${path.basename(crFilePath)})`,
-                  description: 'Invalid - ' + crResult.errors[0],
-                  value: 'cr-invalid',
-                  errors: crResult.errors,
-                  crFilePath
-                })
-              }
-            }
-            
-            if (hasFrontPageData) {
-              options.push({
-                label: '$(book) Standard Front Page',
-                description: '',
-                value: 'standard'
-              })
-            }
-            
-            options.push({
-              label: '$(circle-slash) No Front Page',
-              description: '',
-              value: 'none'
-            })
-            
-            // Show quick pick if there are choices
-            if (options.length > 1) {
-              const choice = await vscode.window.showQuickPick(options, {
-                placeHolder: 'Select front page type for export'
-              })
-              
-              if (!choice) return // User cancelled
-              
-              if (choice.value === 'cr-invalid') {
-                // Show detailed error and offer to open file
-                const errorMsg = `CR cover page validation failed:\n\n${choice.errors.join('\n')}\n\nClick "Open CR File" to fix the errors.`
-                const action = await vscode.window.showErrorMessage(errorMsg, 'Open CR File', 'Cancel')
-                
-                if (action === 'Open CR File') {
-                  await vscode.window.showTextDocument(vscode.Uri.file(choice.crFilePath))
-                }
-                return
-              }
-              
-              if (choice.value === 'cr') {
-                crCoverPageData = choice.crData
-              } else if (choice.value === 'standard') {
-                const data = config.loadFrontPageData()
-                if (data) {
-                  try {
-                    frontPage = buildFrontPageDocx(data)
-                  } catch (e) {
-                    vscode.window.showWarningMessage(`Front page failed: ${e.message}`)
-                  }
-                }
-              }
-              // If choice.value === 'none', both stay null
-            } else if (options.length === 1 && options[0].value !== 'none') {
-              // Only one option available (not counting 'none') - use it automatically
-              if (options[0].value === 'cr') {
-                crCoverPageData = options[0].crData
-              } else if (options[0].value === 'standard') {
-                const data = config.loadFrontPageData()
-                if (data) {
-                  try {
-                    frontPage = buildFrontPageDocx(data)
-                  } catch (e) {
-                    vscode.window.showWarningMessage(`Front page failed: ${e.message}`)
-                  }
-                }
-              }
-            }
-          }
+          // Select cover page (CR, standard front page, or none)
+          const coverPageChoice = await selectCoverPage(config, specRoot)
+          if (!coverPageChoice) return // User cancelled
+
+          const frontPage = coverPageChoice.frontPage || null
+          const crCoverPageData = coverPageChoice.crData || null
 
           await converter.convert(tempMd, outputPath, path.dirname(files[0]), frontPage, { crCoverPageData })
           imageCount = converter.imageCount

@@ -3,6 +3,7 @@ const fs = require('fs')
 const path = require('path')
 const { concatenateFiles } = require('specpress/lib/common/specProcessor')
 const { formatExportTimestamp, showExportNotification } = require('./helpers')
+const { selectCoverPage } = require('./coverPageSelector')
 
 /**
  * Handles the HTML export command.
@@ -37,21 +38,42 @@ async function exportHtml(state, config, previewMgr) {
 
   let htmlContent
   let baseDir
+  let specRoot = ''
 
   if (state.isMultiFilePreview && state.multiFileContent) {
     previewMgr.ensureHandler()
-    htmlContent = state.handler.renderMarkdownForExport(state.multiFileContent, state.multiFilePaths && state.multiFilePaths.length > 0 ? config.getSpecRootForFile(state.multiFilePaths[0]) : null, state.isSpecRootPreview)
+    specRoot = state.multiFilePaths && state.multiFilePaths.length > 0 ? config.getSpecRootForFile(state.multiFilePaths[0]) : ''
+    htmlContent = state.handler.renderMarkdownForExport(state.multiFileContent, specRoot, state.isSpecRootPreview)
     baseDir = state.multiFileBaseDir
   } else if (state.currentEditor) {
     previewMgr.ensureHandler()
+    specRoot = config.getSpecRootForFile(state.currentEditor.document.uri.fsPath)
     const text = state.currentEditor.document.fileName.endsWith('.asn')
-      ? concatenateFiles([state.currentEditor.document.fileName], () => state.currentEditor.document.getText(), config.getSpecRootForFile(state.currentEditor.document.uri.fsPath))
+      ? concatenateFiles([state.currentEditor.document.fileName], () => state.currentEditor.document.getText(), specRoot)
       : state.currentEditor.document.getText()
-    htmlContent = state.handler.renderMarkdownForExport(text, config.getSpecRootForFile(state.currentEditor.document.uri.fsPath))
+    htmlContent = state.handler.renderMarkdownForExport(text, specRoot)
     baseDir = path.dirname(state.currentEditor.document.uri.fsPath)
   } else {
     vscode.window.showErrorMessage('Unable to export: no content available')
     return
+  }
+
+  // Select cover page (CR, standard front page, or none)
+  const coverPageChoice = await selectCoverPage(config, specRoot)
+  if (!coverPageChoice) return // User cancelled
+
+  // Prepend cover page HTML if selected
+  if (coverPageChoice.type === 'cr' && coverPageChoice.crData) {
+    const { renderCRCoverPageHTML } = require('specpress/lib/md2html/crCoverPageRenderer')
+    const coverPageHtml = renderCRCoverPageHTML(coverPageChoice.crData)
+    htmlContent = coverPageHtml + '\n' + htmlContent
+  } else if (coverPageChoice.type === 'standard') {
+    const { buildFrontPageHtml } = require('specpress/lib/md2html/frontPage')
+    const frontPageData = config.loadFrontPageData()
+    if (frontPageData) {
+      const frontPageHtml = buildFrontPageHtml(frontPageData)
+      htmlContent = frontPageHtml + '\n' + htmlContent
+    }
   }
 
   // Remove data-source attributes
