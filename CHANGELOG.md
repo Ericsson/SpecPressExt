@@ -5,7 +5,7 @@ All notable changes to the SpecPress Extension for VS Code will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - 2026-05-28
 
 ### Added
 
@@ -15,16 +15,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Resolve/unresolve workflow with status indicators (red/yellow/green)
   - Position tracking with ±20 character context snippets
   - Automatic detection when comments move due to text edits
-  - Position validation and batch update command
+  - Position validation and automatic updates when saving MD/ASN.1 files
   - Reconfirm position button to manually update comment locations
   - Rich filtering by text, author, and resolution status
   - Tree view showing comments grouped by file
   - Detail view with inline markdown editor
-  - Editor decorations (gutter markers, hover tooltips, CodeLens indicators)
+  - Editor decorations (gutter markers, hover tooltips)
   - Multi-author collision warnings
   - 5-minute in-memory cache for performance
   - Git-friendly JSON file storage
-- **CR Cover Page Selection** - Interactive selection dialog for DOCX export
+- **Improved Live Preview** - Loads preceding and subsequent files/sections when scrolling and thereby reduces the need to toggle between single- and multi-page preview.
+- **CR Cover Page** support
+  - JSON schema for CR cover pages provides interactive help, auto completion and syntax checking when filling the meta data for the CR cover page.
+  - Interactive selection dialog for DOCX export
   - Automatic detection of CR JSON files in `assets/` folder
   - Comprehensive validation with detailed error messages
   - Quick pick dialog with available options:
@@ -35,18 +38,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - "Open CR File" button for quick access to fix validation errors
   - Works in both export and preview modes
   - No configuration needed - fully interactive
-- **JsonTable Editor** - WYSIWYG table editor for JsonTable files
-  - Double-click cells to edit markdown content
-  - Drag to reorder rows/columns
-  - Merge cells via context menu
-  - Real-time rendered output preview
-  - Markdown toolbar (Bold, Italic, Code, Line break)
-- **Change Tracking Preview** - Show tracked changes in live preview
-  - Compare current version against any git baseline commit
-  - Insertions shown in blue with underline
-  - Deletions shown in red with strikethrough
-  - Changed images/diagrams shown side by side
-  - Real-time updates as you edit
 - **Debug Logging** - Optional debug logging to temp file for troubleshooting
   - Enable via `specpress.enableDebugLogging` setting
   - View log with "SpecPress: Show Debug Log" command
@@ -57,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Configuration** - Renamed `specpress.coverPageData` to `specpress.frontPageData` (old name deprecated but still works)
 - **Multi-File Preview** - Improved performance with better caching
 - **Preview Manager** - Fixed bug where specRoot was used before being defined in multi-file preview
+- Updated to specpress 3.2.2
 
 ### Fixed
 
@@ -77,10 +69,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cover page support with template and data files
 - Section numbering from folder/file hierarchy
 - Mermaid diagram rendering
-- JsonTable support
 - LaTeX equation rendering
 - ASN.1 syntax highlighting
 - Synchronized scrolling in preview
+- JsonTable support
+- JsonTable Editor - WYSIWYG table editor for JsonTable files
+- Change Tracking Preview - Show tracked changes in live preview
 
 ### Changed
 
@@ -98,6 +92,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic preview functionality
 - DOCX export support
 
-[Unreleased]: https://github.com/Ericsson/SpecPressExt/compare/v0.6.13...HEAD
+[0.7.0]: https://github.com/Ericsson/SpecPressExt/compare/v0.6.13...v0.7.0
 [0.6.13]: https://github.com/Ericsson/SpecPressExt/releases/tag/v0.6.13
 [0.6.0]: https://github.com/Ericsson/SpecPressExt/releases/tag/v0.6.0

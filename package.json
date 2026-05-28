@@ -1,7 +1,7 @@
 {
   "name": "specpressext",
   "displayName": "SpecPress Extension for VSC",
-  "version": "0.6.13",
+  "version": "0.7.0",
   "publisher": "Ericsson",
   "icon": "images/logo.png",
   "engines": {
@@ -371,6 +371,6 @@
   },
   "dependencies": {
     "htmldiff-js": "^1.0.5",
-    "specpress": "^3.2.0"
+    "specpress": "^3.2.2"
   }
 }
