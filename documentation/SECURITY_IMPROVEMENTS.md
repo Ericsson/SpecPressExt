@@ -3,6 +3,7 @@
 ## Issue Identified
 
 The commenting system had a security concern:
+
 - Comment folder defaulted to `specRoot/../comments` (outside spec root)
 - Worked without explicit configuration
 - Could potentially be exploited with malicious paths
@@ -12,11 +13,13 @@ The commenting system had a security concern:
 ### 1. Mandatory Configuration
 
 **Before:**
+
 ```javascript
 const folderName = this.config.commentFolder || 'comments'  // Default value
 ```
 
 **After:**
+
 ```javascript
 if (!folderName) {
   throw new Error('Comment folder not configured. Set specpress.commentFolder in settings.json.')
@@ -24,6 +27,7 @@ if (!folderName) {
 ```
 
 **Impact:**
+
 - Commenting feature fails if not configured
 - Forces users to make conscious decision
 - No silent defaults that could be insecure
@@ -31,6 +35,7 @@ if (!folderName) {
 ### 2. Path Validation
 
 **Added Security Checks:**
+
 ```javascript
 // Validate path normalization
 const normalized = path.normalize(commentFolder)
@@ -40,6 +45,7 @@ if (normalized !== commentFolder) {
 ```
 
 **Prevents:**
+
 - Path traversal attacks (`../../../etc/passwd`)
 - Symlink tricks
 - Malformed paths
@@ -47,6 +53,7 @@ if (normalized !== commentFolder) {
 ### 3. Configuration Changes
 
 **package.json:**
+
 ```json
 {
   "specpress.commentFolder": {
@@ -58,6 +65,7 @@ if (normalized !== commentFolder) {
 ```
 
 **Impact:**
+
 - No default value
 - Clear security warning in description
 - Users must explicitly configure
@@ -65,6 +73,7 @@ if (normalized !== commentFolder) {
 ### 4. CR Cover Page Validation
 
 **Added Security Checks:**
+
 ```javascript
 // File type validation
 if (!crFilePath.toLowerCase().endsWith('.json')) {
@@ -79,6 +88,7 @@ if (normalized !== crFilePath) {
 ```
 
 **Impact:**
+
 - Prevents loading non-JSON files
 - Detects path traversal attempts
 - Defense in depth (even though detector already restricts to assets/)
@@ -86,6 +96,7 @@ if (normalized !== crFilePath) {
 ### 5. Documentation
 
 **Created:**
+
 - `SECURITY.md` - Comprehensive security documentation
 - Updated `Commenting documents.md` - Security requirements
 - Clear warnings in configuration descriptions
@@ -93,6 +104,7 @@ if (normalized !== crFilePath) {
 ## Security Model Summary
 
 ### Inside Spec Root (Secure by Default)
+
 - ✅ Markdown files
 - ✅ Images
 - ✅ JsonTable files
@@ -101,10 +113,12 @@ if (normalized !== crFilePath) {
 - ✅ Mermaid cache (generated files only)
 
 ### Outside Spec Root (Requires Configuration)
+
 - ⚠️ Comments folder (must be explicitly configured)
 - ⚠️ Front page data (user-configured path)
 
 ### Validation Applied
+
 - ✅ Path normalization checks
 - ✅ File extension validation
 - ✅ Directory restriction (for CR files)
@@ -126,7 +140,8 @@ If you were using the commenting feature, you now need to add this to `.vscode/s
 ### Error Message
 
 If not configured, users will see:
-```
+
+```text
 Comment folder not configured. Set specpress.commentFolder in settings.json.
 Example: "specpress.commentFolder": "comments" (creates folder as sibling to spec root)
 Security note: Comments folder will be outside spec root by default.
@@ -137,24 +152,27 @@ Security note: Comments folder will be outside spec root by default.
 ### Security Tests to Add
 
 1. **Path Traversal:**
+2.
    ```javascript
    config.commentFolder = '../../../etc'
    // Should fail validation
    ```
 
-2. **Absolute Path:**
+3. **Absolute Path:**
+4.
    ```javascript
    config.commentFolder = '/tmp/comments'
    // Should work but with warning
    ```
 
-3. **Missing Configuration:**
+5. **Missing Configuration:**
    ```javascript
    config.commentFolder = ''
    // Should throw error
    ```
 
-4. **CR File Type:**
+6. **CR File Type:**
+7.
    ```javascript
    loadCRCoverPageData('malicious.exe')
    // Should reject non-JSON files
@@ -196,6 +214,7 @@ Security note: Comments folder will be outside spec root by default.
 ## Conclusion
 
 The security improvements ensure that:
+
 - ✅ Users are aware of security implications
 - ✅ No silent defaults that could be insecure
 - ✅ Path validation prevents common attacks

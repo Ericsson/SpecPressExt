@@ -14,8 +14,10 @@ The extension is a thin VS Code integration layer on top of the [specpress](http
 - **DOCX Export** - Exports the selected files/folders as a DOCX document in 3GPP style including appropriate style settings. Supports exporting from local files or from any git commit/branch/tag.
 - **DOCX DIFF** - Exports two DOCX documents from two different versions (local version, branches, commits, ...) and generates a tracked-changes comparison in MS-Word.
 - **Change Tracking Preview** - Shows tracked changes (insertions/deletions) directly in the live preview by comparing the current version against any git baseline commit.
-- **Cover Page** - Configurable cover page for spec-root-level exports in both HTML and DOCX.
+- **Specification front page** - Auto-generated specification front page based on meta data provided in a JSON file. It is included when exporting the entire specification in HTML or DOCX format.
+- **CR cover page** - [Auto-generated CR cover page](https://github.com/Ericsson/specpress/blob/main/documentation/CR-Cover-Page.md) based on meta data provided in a JSON file. It may be included instead of the specification front page when exporting to HTML or DOCX.
 - **JsonTable Editor** - A WYSIWYG table editor for JsonTable files (JSON-defined tables used by specpress). Double-click cells to edit markdown content, drag to reorder rows/columns, merge cells via context menu, and see rendered output in real time.
+- **Commenting** - Use the commenting pane to add, read, answer and resolve comments on specification source files. The comments are stored as JSON files that may be stored and committed in the git repository, too. See the [detailed commenting documentation](https://github.com/Ericsson/SpecPressExt/blob/main/documentation/Commenting%20documents.md) for workflows and configuration.
 
 ## 1.2 Installation
 
@@ -88,21 +90,24 @@ The following settings can be configured in VS-Code's workspace or user settings
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
-| `specpress.specificationRootPath` | string or string[] | `""` | (*mandatory*) Path(s) to the specification root folder(s), relative to workspace root or absolute. Set it to `"."` if your specification root is equal to your workspace root. |
+| `specpress.specificationRootPath` | string or string[] | `"specification"` | (*mandatory*) Path(s) to the specification root folder(s), relative to workspace root or absolute. Set it to `"."` if your specification root is equal to your workspace root. |
 | `specpress.deriveSectionNumbers` | boolean | `false` | Enable automatic section number derivation from folder/file hierarchy. |
-| `specpress.coverPageTemplate` | string | `""` | Path to an HTML template for the cover page. |
-| `specpress.coverPageData` | string | `""` | Path to a JSON file with cover page placeholder values. |
-| `specpress.defaultExportFolder` | string | `""` | Default folder for HTML and DOCX export dialogs. Overridden by the last chosen folder during the session. |
-| `specpress.multiPagePreviewDefaultPath` | string | `""` | Default path for the "Restore Multi-File Preview" command. |
+| `specpress.frontPageData` | string | `""` | Path to a JSON file with front page placeholder values, relative to workspace root. |
+| `specpress.defaultExportFolder` | string | `"export"` | Default folder for HTML and DOCX export dialogs. Relative to workspace root or absolute. Overridden by the last chosen folder during the session. |
+| `specpress.multiPagePreviewDefaultPath` | string | `""` | Default path for the "Restore Multi-File Preview" command (Ctrl+Shift+M). Relative paths are resolved from the workspace root. |
+| `specpress.commentFolder` | string | `"comments"` | Folder for comment files. Required for commenting feature. Relative paths are resolved from spec root parent (e.g., `"comments"` creates a sibling folder). |
+| `specpress.userId` | string | `""` | User ID for comments (no spaces, lowercase recommended). |
+| `specpress.userName` | string | `""` | Display name for comments. |
 | `specpress.renderers` | object | `{}` | Custom HTML renderers for markdown elements (advanced). |
-| `specpress.cssFile` | string | SpecPress default | Path to a custom CSS file for HTML preview and export. It is recommended not to set this parameter and rather rely on the default CSS provided with the SpecPressExtension. |
-| `specpress.mermaidConfigFile` | string | SpecPress default | Path to a mermaid configuration JSON file. It is recommended not to set this parameter and rather rely on the default configuration provided with the SpecPressExtension. |
+| `specpress.cssFile` | string | SpecPress default | Path to a custom CSS file for HTML preview and export, relative to workspace root. It is recommended not to set this parameter and rather rely on the default CSS provided with the SpecPressExtension. |
+| `specpress.mermaidConfigFile` | string | SpecPress default | Path to a mermaid configuration JSON file, relative to workspace root. It is recommended not to set this parameter and rather rely on the default configuration provided with the SpecPressExtension. |
+| `specpress.enableDebugLogging` | boolean | `false` | Enable debug logging to temp file for troubleshooting. Useful when running in Extension Development Host. |
 
 ## 1.5 Usage
 
-### 1.5.1 Automatic live preview
+### 1.5.1 Live preview
 
-After installing and configuring the extension, open a markdown- or ASN.1 file within your `specificationRootPath` in the VSC editor. Right-click into the editor to open the context menu and choose `SpecPress: Open Preview`. The SpecPress extension opens a live preview, updates it as you edit your source file and scrolls accordingly.
+After installing and configuring the extension, open a markdown- or ASN.1 file within your `specificationRootPath` in the VSC editor. Right-click into the editor to open the context menu and choose `SpecPress: Open Preview`. The SpecPress extension opens a live preview, updates it as you edit your source file and scrolls accordingly. If you scroll up- or downwards it shows a preview of the adjacent source files, too. Double clicking therein opens the corresponding source file in the editor.
 
 ![Live preview of markdown files](https://raw.githubusercontent.com/Ericsson/SpecPressExt/main/images/01_using_live_preview.png)
 
@@ -112,7 +117,7 @@ When you switch to another source file the live preview updates, too.
 
 When you close the preview it remains closed until you re-open it via the context menu.
 
-### 1.5.2 Multiple-Files
+### 1.5.2 Multi-File Preview
 
 We expect the specification to be split into many markdown-, ASN.1- and JSON files which represent one or a few sub-section each. Furthermore, those markdown files should be ordered in a suitable folder structure (e.g. by sections).
 
@@ -150,11 +155,25 @@ To export a DOCX version, select one or more files and/or folders in the VS-Code
 
 1. **Version selection** — A searchable commit picker appears showing the 200 most recent git commits. Choose "Local files (current workspace)" to export the current working copy, or select a specific commit/branch/tag to export an older version. You can type to filter by commit message, hash, or ref name.
 
-2. **Save location** — A save dialog opens with a timestamped default filename (e.g. `2026-03-31 14-30-00 Export.docx`). If exporting from a git commit, the short hash is appended (e.g. `...Export_abc1234.docx`). The dialog initially opens in the folder configured via `specpress.defaultExportFolder`, or in the last used export folder.
+2. **Front page selection** (spec root only) — When exporting from the specification root, you can choose between:
+    - **Specification Front Page** — Uses the configured front page (if `specpress.frontPageData` is set)
+    - **CR Cover Page** — Uses a Change Request cover page if a draft CR file (`CRxxxx.json`) is detected in the `history/` folder
+    - **No Front Page** — Exports without a cover page
 
-3. **Export** — The extension collects all markdown and ASN.1 files from the selection, processes section numbers, renders mermaid diagrams, converts equations, and generates the DOCX file with 3GPP-style formatting.
+   The extension automatically detects available options and validates CR data. If validation fails, an error dialog shows the issues with an "Open CR File" button to fix them. See the [specpress CR Cover Page documentation](https://github.com/Ericsson/specpress/blob/main/documentation/CR-Cover-Page.md) for details on creating CR files.
 
-When exporting at the spec root level (i.e. the folder configured in `specpress.specificationRootPath`), a cover page is automatically included if `specpress.coverPageTemplate` and `specpress.coverPageData` are configured.
+3. **Save location** — A save dialog opens with a timestamped default filename (e.g. `2026-03-31 14-30-00 Export.docx`). If exporting from a git commit, the short hash is appended (e.g. `...Export_abc1234.docx`). The dialog initially opens in the folder configured via `specpress.defaultExportFolder`, or in the last used export folder.
+
+4. **Export** — The extension collects all markdown and ASN.1 files from the selection, processes section numbers, renders mermaid diagrams, converts equations, and generates the DOCX file with 3GPP-style formatting.
+
+**Standalone CR Cover Page Export:**
+
+You can export just a CR cover page without specification content:
+
+1. Navigate to `spec/history/` folder
+2. Right-click on a CR JSON file (e.g., `CR1234.json` or `CRxxxx.json`)
+3. Select "Export Selected to DOCX"
+4. The extension exports only the CR cover page as a DOCX file
 
 ![DOCX file in MS-Word](https://raw.githubusercontent.com/Ericsson/SpecPressExt/main/images/06_docx_file_in_MS-Word.png)
 
