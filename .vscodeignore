@@ -10,6 +10,8 @@ co-develop.cmd
 
 # Images are loaded from GitHub via absolute URLs in README; only logo.png is needed
 images/
+!images/comment-resolved.svg
+!images/comment-unresolved.svg
 !images/logo.png
 
 # Node modules: exclude TypeScript types, docs, tests, source maps
