@@ -6,6 +6,7 @@ const { getFileFromCommit, collectFilesFromCommit } = require('specpress/lib/com
 const { insertOmittedMarkers } = require('./helpers')
 const { loadCRCoverPage } = require('./crCoverPageHelper')
 const { applyDiff } = require('./diffRenderer')
+const { selectCoverPage } = require('./coverPageSelector')
 
 /**
  * Builds and displays a multi-file preview.
@@ -32,7 +33,7 @@ async function previewMultiple(state, config, ensureHandler, registerMessageHand
   state.currentFileIndex = -1
   state.adjacentFileCache.clear()
 
-  const buildPreview = () => {
+  const buildPreview = async () => {
     try {
       const files = commitRef
         ? collectFilesFromCommit(commitRef.repoRoot, uris.map(u => u.fsPath), commitRef.commit)
@@ -74,13 +75,24 @@ async function previewMultiple(state, config, ensureHandler, registerMessageHand
 
       const specRoot = files.length > 0 ? config.getSpecRootForFile(files[0]) : ''
 
-      // Detect CR cover page if at spec root
-      const crCoverPageData = state.isSpecRootPreview ? loadCRCoverPage(specRoot) : null
+      // Select cover page if at spec root
+      let frontPageHtml = null
+      let crCoverPageData = null
 
-      // Set standard front page HTML
-      state.handler.frontPageHtml = state.isSpecRootPreview
-        ? buildFrontPageHtml(config.loadFrontPageData())
-        : null
+      if (state.isSpecRootPreview) {
+        const coverPageChoice = await selectCoverPage(config, specRoot)
+        if (!coverPageChoice) return // User cancelled
+
+        if (coverPageChoice.type === 'cr') {
+          crCoverPageData = coverPageChoice.crData
+        } else if (coverPageChoice.type === 'standard') {
+          frontPageHtml = buildFrontPageHtml(config.loadFrontPageData())
+        }
+        // else: type === 'none', both remain null
+      }
+
+      // Set front page HTML
+      state.handler.frontPageHtml = frontPageHtml
 
       const readFile = commitRef ? (f) => getFileFromCommit(commitRef.repoRoot, f, commitRef.commit) : undefined
       let processedContent = concatenateFiles(files, readFile, specRoot)
