@@ -20,7 +20,6 @@ const { CommentFilterViewProvider } = require('./vscode/commenting/commentFilter
 const { addComment } = require('./vscode/commenting/addComment')
 const { handleCommentClick } = require('./vscode/commenting/handleCommentClick')
 const { validateCommentPositions } = require('./vscode/commenting/validateCommentPositions')
-const { reconfirmCommentPosition } = require('./vscode/commenting/reconfirmCommentPosition')
 const { selectCommentInTree, showCommentInSidebar } = require('./vscode/commenting/commentHelpers')
 const { extractSnippet } = require('./vscode/commenting/snippetExtractor')
 const { logger } = require('./vscode/logger')
@@ -489,7 +488,7 @@ function activate(context) {
 
     // Legacy command name for backward compatibility
     vscode.commands.registerCommand('specpress.reconfirmCommentPosition', async (comment, specRoot) => {
-      await vscode.commands.executeCommand('specpress.setCommentAnchor', comment, specRoot)
+      vscode.window.showWarningMessage('This command has been removed. Use "Set Anchor Position" button in the comment detail view or "Validate Comment Positions" for batch updates.')
     }),
 
     vscode.commands.registerCommand('specpress.handleCommentClick', async (uri, lineNum) => {

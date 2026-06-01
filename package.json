@@ -124,11 +124,6 @@
         "icon": "$(search)"
       },
       {
-        "command": "specpress.reconfirmCommentPosition",
-        "title": "SpecPress: Reconfirm Comment Position",
-        "icon": "$(pin)"
-      },
-      {
         "command": "specpress.refreshCommentTree",
         "title": "SpecPress: Refresh Comments",
         "icon": "$(refresh)"
@@ -266,11 +261,6 @@
           "command": "specpress.validateCommentPositions",
           "when": "editorLangId == markdown || resourceExtname == '.asn'",
           "group": "specpress@5"
-        },
-        {
-          "command": "specpress.reconfirmCommentPosition",
-          "when": "editorLangId == markdown || resourceExtname == '.asn'",
-          "group": "specpress@6"
         }
       ]
     },
