@@ -5,6 +5,25 @@ All notable changes to the SpecPress Extension for VS Code will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-06-01
+
+### Added
+
+- **Multi-File Preview Cover Page Selection** - When previewing spec root, users can now choose between CR cover page, standard front page, or no cover page (same options as DOCX export)
+- **.vscode/settings.json** - Settings for indentation and JSON formatting.
+
+### Changed
+
+- Update to specpress 3.2.3
+
+### Fixed
+
+- Bundle missing icons with VSIX package.
+
+### Removed
+
+- **Reconfirm Comment Position** command - Removed redundant command (replaced by automatic validation on save and "Validate Comment Positions" with multi-select)
+
 ## [0.7.0] - 2026-05-28
 
 ### Added
@@ -28,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CR Cover Page** support
   - JSON schema for CR cover pages provides interactive help, auto completion and syntax checking when filling the meta data for the CR cover page.
   - Interactive selection dialog for DOCX export
-  - Automatic detection of CR JSON files in `assets/` folder
+  - Automatic detection of CR JSON files in `history/` folder
   - Comprehensive validation with detailed error messages
   - Quick pick dialog with available options:
     - CR Cover Page (with filename)
@@ -92,6 +111,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic preview functionality
 - DOCX export support
 
+[0.7.1]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Ericsson/SpecPressExt/compare/v0.6.13...v0.7.0
 [0.6.13]: https://github.com/Ericsson/SpecPressExt/releases/tag/v0.6.13
 [0.6.0]: https://github.com/Ericsson/SpecPressExt/releases/tag/v0.6.0
