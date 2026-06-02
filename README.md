@@ -12,7 +12,7 @@ The extension is a thin VS Code integration layer on top of the [specpress](http
 - **Multiple File Preview** - Shows a concatenated live preview of all selected files and/or folders in the VSC explorer pane.
 - **HTML Export** - Export current preview or the selected files/folders to a standalone HTML file with a media directory containing all images. Supports exporting from local files or from any git commit/branch/tag.
 - **DOCX Export** - Exports the selected files/folders as a DOCX document in 3GPP style including appropriate style settings. Supports exporting from local files or from any git commit/branch/tag.
-- **DOCX DIFF** - Exports two DOCX documents from two different versions (local version, branches, commits, ...) and generates a tracked-changes comparison in MS-Word.
+- **DOCX DIFF** - Generates tracked-changes comparisons between 2-5 versions (commits or local files) with proper author attribution. See [detailed DOCX DIFF documentation](documentation/DOCX-DIFF.md).
 - **Change Tracking Preview** - Shows tracked changes (insertions/deletions) directly in the live preview by comparing the current version against any git baseline commit.
 - **Specification front page** - Auto-generated specification front page based on meta data provided in a JSON file. It is included when exporting the entire specification in HTML or DOCX format.
 - **CR cover page** - [Auto-generated CR cover page](https://github.com/Ericsson/specpress/blob/main/documentation/CR-Cover-Page.md) based on meta data provided in a JSON file. It may be included instead of the specification front page when exporting to HTML or DOCX.
@@ -183,17 +183,26 @@ To generate a **PDF** version of the specification, it is recommended to generat
 
 ### 1.5.6 DOCX DIFF (Change Request)
 
-The "**Compare as DOCX**" function generates a tracked-changes comparison between two versions of the specification. This is useful for creating traditional Change Requests (CRs) or for reviewing changes between any two versions.
+The "**Compare as DOCX**" function generates a tracked-changes comparison between 2-5 versions of your specification. This is useful for creating Change Requests (CRs) or reviewing changes across multiple versions.
 
-1. **Select files/folders** — Choose the files or folders to compare in the explorer pane. Right-click and choose "**Compare as DOCX**".
+**Quick Start:**
+1. Select files/folders in the Explorer pane
+2. Right-click → "**Compare as DOCX**"
+3. Select versions (2-5 commits or local files)
+4. Enter author names for each transition (smart defaults provided)
+5. Choose omitted section markers (Yes/No)
+6. Save with auto-generated filename
 
-2. **Baseline version** — Select the original (baseline) commit from the commit picker. This is the "before" version.
+**Key Features:**
+- Compare 2-5 versions in a single operation
+- Each version transition gets its own author name
+- Smart author defaults from commit messages
+- CR-based filename generation when available
+- Press Enter on "None" from 3rd version onwards to finish early
 
-3. **Revised version** — Select the revised (target) commit, or choose "Local files" to compare against the current working copy.
+For detailed documentation including version selection, author naming, filename generation, testing, and troubleshooting, see [DOCX DIFF documentation](documentation/DOCX-DIFF.md).
 
-4. **Author name** — Enter the author name for tracked changes (default: "SpecPress").
-
-The extension generates two DOCX files (baseline and revised), then launches MS-Word with instructions to produce a legal black-line comparison. MS-Word must be installed for this function to work.
+MS-Word must be installed for this function to work.
 
 ### 1.5.7 Change tracking preview
 
