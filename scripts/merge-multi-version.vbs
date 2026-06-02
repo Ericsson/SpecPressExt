@@ -17,6 +17,34 @@
 ' - Example for 4 versions: merge v3+v4, then v2+(v3+v4), then v1+(v2+v3+v4)
 ' - This preserves all tracked changes with correct author attribution
 
+Dim fso
+Set fso = CreateObject("Scripting.FileSystemObject")
+
+' ===== Helper Functions =====
+
+' Convert relative path to absolute path if needed
+Function ToAbsolutePath(path)
+  If InStr(path, ":") > 0 Or Left(path, 2) = "\\" Then
+    ToAbsolutePath = path
+  Else
+    ToAbsolutePath = fso.GetAbsolutePathName(path)
+  End If
+End Function
+
+' Validate that a file exists, exit with error if not
+Sub ValidateFileExists(path, logFile)
+  Dim absPath
+  absPath = ToAbsolutePath(path)
+  If Not fso.FileExists(absPath) Then
+    logFile.WriteLine "File not found: " & absPath
+    logFile.Close
+    WScript.Echo "File not found: " & absPath
+    WScript.Quit 1
+  End If
+End Sub
+
+' ===== Main Script =====
+
 If WScript.Arguments.Count < 4 Then
   WScript.Echo "Usage: cscript //nologo merge-multi-version.vbs <outputPath> <v1.docx> <v2.docx> <author2> [<v3.docx> <author3> ...] [debug]"
   WScript.Echo "Error: At least 4 arguments required (outputPath, v1, v2, author2)"
@@ -50,10 +78,7 @@ If (effectiveArgCount Mod 2) <> 0 Then
 End If
 
 Dim outputPath
-outputPath = WScript.Arguments(0)
-
-Dim fso
-Set fso = CreateObject("Scripting.FileSystemObject")
+outputPath = ToAbsolutePath(WScript.Arguments(0))
 
 ' Create log file
 Dim logFile, logPath
@@ -93,19 +118,10 @@ On Error Goto 0
 
 ' Validate all input DOCX files exist
 Dim i
-If Not fso.FileExists(WScript.Arguments(1)) Then
-  WScript.Echo "File not found: " & WScript.Arguments(1)
-  WScript.Quit 1
-End If
-If Not fso.FileExists(WScript.Arguments(2)) Then
-  WScript.Echo "File not found: " & WScript.Arguments(2)
-  WScript.Quit 1
-End If
+ValidateFileExists WScript.Arguments(1), logFile  ' v1
+ValidateFileExists WScript.Arguments(2), logFile  ' v2
 For i = 4 To effectiveArgCount - 1 Step 2
-  If Not fso.FileExists(WScript.Arguments(i)) Then
-    WScript.Echo "File not found: " & WScript.Arguments(i)
-    WScript.Quit 1
-  End If
+  ValidateFileExists WScript.Arguments(i), logFile  ' v3, v4, v5...
 Next
 
 ' Create Word application (invisible)
@@ -144,7 +160,7 @@ Set resultDoc = Nothing
 Do While revisedVersionIndex >= 2
 
   If tempResultPath = "" Then
-    revisedPath = WScript.Arguments(revisedVersionIndex)
+    revisedPath = ToAbsolutePath(WScript.Arguments(revisedVersionIndex))
   Else
     revisedPath = tempResultPath
   End If
@@ -152,10 +168,10 @@ Do While revisedVersionIndex >= 2
   revisedVersionNumber = (revisedVersionIndex + 2) \ 2
 
   If revisedVersionIndex >= 4 Then
-    origPath = WScript.Arguments(revisedVersionIndex - 2)
+    origPath = ToAbsolutePath(WScript.Arguments(revisedVersionIndex - 2))
     origAuthor = WScript.Arguments(revisedVersionIndex - 1)
   Else
-    origPath = WScript.Arguments(1)
+    origPath = ToAbsolutePath(WScript.Arguments(1))
     origAuthor = "Base Version"
   End If
   origVersionNumber = revisedVersionNumber - 1
