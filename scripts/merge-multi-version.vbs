@@ -103,19 +103,6 @@ If fso.FileExists(tempFolder & "\specpress_temp_8.docx") Then fso.DeleteFile tem
 Err.Clear
 On Error Goto 0
 
-' Try to close any existing Word instances that might be hanging
-On Error Resume Next
-Dim existingWord
-Set existingWord = GetObject(, "Word.Application")
-If Not existingWord Is Nothing Then
-  WScript.Echo "Warning: Found existing Word instance, attempting to close it..."
-  existingWord.Quit 0
-  WScript.Sleep 1000 ' Wait 1 second for Word to close
-  Set existingWord = Nothing
-End If
-Err.Clear
-On Error Goto 0
-
 ' Validate all input DOCX files exist
 Dim i
 ValidateFileExists WScript.Arguments(1), logFile  ' v1
