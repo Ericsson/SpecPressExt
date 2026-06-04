@@ -75,12 +75,12 @@ where $C$ is the capacity in bits per second and $B$ is the bandwidth in Hertz.
 
 Table 6.1-1: Timing parameters
 
-| Parameter | Value | Unit | Description |
-|-----------|-------|------|-------------|
-| T300 | 1000 | ms | RRC connection setup timeout |
-| T301 | 2000 | ms | RRC connection re-establishment timeout |
-| T310 | 3000 | ms | Radio link failure timer |
-| T311 | 10000 | ms | RRC connection re-establishment procedure timer |
+| Parameter | Value | Unit | Description                                         |
+| --------- | ----- | ---- | --------------------------------------------------- |
+| T300      | 1000  | ms   | RRC connection setup timeout                        |
+| T301      | 2000  | ms   | RRC connection re-establishment timeout             |
+| T310      | 3000  | ms   | Radio link failure timer                            |
+| T311      | 10000 | ms   | RRC connection re-establishment procedure timer     |
 
 ### 6.2 Power Parameters
 
@@ -122,3 +122,98 @@ All user plane data shall be encrypted using the specified algorithms:
 - NEA0 (null encryption - for testing only)
 - NEA1 (SNOW 3G)
 - NEA2 (AES)
+
+## 9 Protocol Messages
+
+### 9.1 Message Structure
+
+The message structure follows ASN.1 encoding:
+
+```asn
+-- RRC Connection Request Message
+RRCConnectionRequest ::= SEQUENCE {
+    rrc-TransactionIdentifier   RRC-TransactionIdentifier,
+    criticalExtensions          CHOICE {
+        rrcConnectionRequest-r8     RRCConnectionRequest-r8-IEs,
+        criticalExtensionsFuture    SEQUENCE {}
+    }
+}
+
+RRCConnectionRequest-r8-IEs ::= SEQUENCE {
+    ue-Identity                 InitialUE-Identity,
+    establishmentCause          EstablishmentCause,
+    spare                       BIT STRING (SIZE (1))
+}
+```
+
+### 9.2 Procedure Flow
+
+The following diagram shows the connection establishment flow:
+
+```mermaid
+sequenceDiagram
+    participant UE
+    participant gNB
+    participant AMF
+    
+    UE->>gNB: RRC Connection Request
+    gNB->>UE: RRC Connection Setup
+    UE->>gNB: RRC Connection Setup Complete
+    gNB->>AMF: Initial UE Message
+    AMF->>gNB: Initial Context Setup Request
+    gNB->>UE: Security Mode Command
+    UE->>gNB: Security Mode Complete
+```
+
+Figure 9.2-1: Connection establishment procedure
+
+### 9.3 Configuration Parameters
+
+The configuration includes *multi-level* parameters:
+
+- 1> **Radio Parameters**:
+
+  - 2> Frequency: Operating frequency band
+
+  - 2> Bandwidth: Channel bandwidth configuration
+
+    - 3> Minimum: 5 MHz
+
+    - 3> Maximum: 100 MHz
+
+  - 2> Power: Transmit power settings
+
+- 1> **Timer Values**:
+
+  - 2> Short timers: Used for immediate responses
+
+  - 2> Long timers: Used for periodic updates
+
+- 1> **QoS Settings**:
+
+  - 2> Priority levels from 1 to 15
+
+  - 2> Delay budgets configured per flow
+
+### 9.4 Capability Information
+
+The following table uses *embedded* JsonTable format:
+
+```jsonTable
+{
+  "columns": [
+    {"key": "feature", "name": "Feature", "align": "left"},
+    {"key": "supported", "name": "Supported", "align": "center"},
+    {"key": "version", "name": "Version", "align": "center"}
+  ],
+  "rows": [
+    {"feature": "Dual Connectivity", "supported": "Yes", "version": "Rel-15"},
+    {"feature": "Carrier Aggregation", "supported": "Yes", "version": "Rel-15"},
+    {"feature": "Beamforming", "supported": "No", "version": "-"}
+  ]
+}
+```
+
+Table 9.4-1: UE capability support matrix
+
+**NOTE 2**: The UE shall report all supported features during capability exchange.
