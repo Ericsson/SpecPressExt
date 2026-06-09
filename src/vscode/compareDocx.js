@@ -10,7 +10,7 @@ const { pickCommit, collectFilesFromUris, collectFilesFromCommitUris, extractFil
 const { selectCoverPage } = require('./coverPageSelector')
 
 const MAX_VERSIONS = 5
-const DEBUG_MODE = true // Set to false to clean up temp files
+const DEBUG_MODE = false // Set to false to clean up temp files
 
 /**
  * Creates a fileResolver from a pre-extracted cache.

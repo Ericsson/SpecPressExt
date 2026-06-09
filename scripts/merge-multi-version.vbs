@@ -93,16 +93,6 @@ For argIdx = 0 To WScript.Arguments.Count - 1
 Next
 Dim logLine
 
-' Clean up any existing temp files from previous runs
-Dim tempFolder
-tempFolder = fso.GetSpecialFolder(2) ' 2 = TempFolder
-On Error Resume Next
-If fso.FileExists(tempFolder & "\specpress_temp_4.docx") Then fso.DeleteFile tempFolder & "\specpress_temp_4.docx"
-If fso.FileExists(tempFolder & "\specpress_temp_6.docx") Then fso.DeleteFile tempFolder & "\specpress_temp_6.docx"
-If fso.FileExists(tempFolder & "\specpress_temp_8.docx") Then fso.DeleteFile tempFolder & "\specpress_temp_8.docx"
-Err.Clear
-On Error Goto 0
-
 ' Validate all input DOCX files exist
 Dim i
 ValidateFileExists WScript.Arguments(1), logFile  ' v1
