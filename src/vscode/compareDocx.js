@@ -293,21 +293,17 @@ async function compareDocx(state, config, context, uri, allUris) {
         // Note: v1 is the baseline (no author), v2's changes get author2, v3's changes get author3, etc.
         progress.report({ message: 'Starting Word comparison...' })
 
-        const vbsArgs = [`"${outputPath}"`]
+        const vbsPath = path.join(__dirname, '..', '..', 'scripts', 'merge-multi-version.vbs')
+        const vbsArgs = ['//nologo', vbsPath, outputPath]
         for (let i = 0; i < versions.length; i++) {
-          vbsArgs.push(`"${docxFiles[i]}"`)
+          vbsArgs.push(docxFiles[i])
           if (i > 0) {
-            // Author name for the changes this version introduces
-            vbsArgs.push(`"${versions[i].authorName}"`)
+            vbsArgs.push(versions[i].authorName)
           }
         }
 
-        const vbsPath = path.join(__dirname, '..', '..', 'scripts', 'merge-multi-version.vbs')
-
         try {
-          // Use spawn instead of execSync to capture real-time output
           const { spawn } = require('child_process')
-          const vbsArgs = ['//nologo', vbsPath, ...vbsArgs.map(arg => arg.replace(/^"|"$/g, ''))]
           if (DEBUG_MODE) vbsArgs.push('debug')
           
           const vbsProcess = spawn('cscript', vbsArgs, {
