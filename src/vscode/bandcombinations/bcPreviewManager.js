@@ -18,7 +18,7 @@ class BcPreviewManager {
     this.multiMode = false
     this.multiBcFiles = []
 
-    // First, open the JSON file in the editor
+    // Open the JSON file in the editor
     const doc = await vscode.workspace.openTextDocument(filePath)
     await vscode.window.showTextDocument(doc, vscode.ViewColumn.One)
 
@@ -39,6 +39,13 @@ class BcPreviewManager {
         this.panel = null
         this.currentFilePath = null
         this.disposeListeners()
+      })
+      
+      // Handle messages from webview
+      this.panel.webview.onDidReceiveMessage(async message => {
+        if (message.command === 'openRef') {
+          await this.openReferencedFile(message.ref, message.bcs)
+        }
       })
     } else {
       this.panel.reveal(vscode.ViewColumn.Two)
@@ -201,8 +208,8 @@ class BcPreviewManager {
             }
             const rowspanAttr = rowspan > 1 ? ` rowspan="${rowspan}"` : ''
             
-            // Don't escape &nbsp; - render it as HTML entity (or empty)
-            const cellContent = value === '&nbsp;' ? '' : this.escapeHtml(value)
+            // Don't escape HTML tags (like <br>) - render them directly
+            const cellContent = value === '&nbsp;' ? '' : value
             lines.push(`${indent}${indent}<td${rowspanAttr}>${cellContent}</td>`)
           }
         }
@@ -248,11 +255,36 @@ class BcPreviewManager {
       position: sticky;
       top: 0;
     }
+    sup {
+      font-size: 0.7em;
+      color: var(--vscode-textLink-foreground);
+      cursor: help;
+      text-decoration: none;
+    }
+    a.bc-ref-link {
+      color: var(--vscode-textLink-foreground);
+      text-decoration: none;
+      cursor: pointer;
+    }
+    a.bc-ref-link:hover {
+      text-decoration: underline;
+    }
   </style>
 </head>
 <body>
   <h1>${this.escapeHtml(title)}</h1>
   ${tableHtml}
+  <script>
+    const vscode = acquireVsCodeApi();
+    document.addEventListener('click', (e) => {
+      if (e.target.classList.contains('bc-ref-link')) {
+        e.preventDefault();
+        const ref = e.target.getAttribute('data-ref');
+        const bcs = e.target.getAttribute('data-bcs');
+        vscode.postMessage({ command: 'openRef', ref, bcs });
+      }
+    });
+  </script>
 </body>
 </html>`
   }
@@ -409,6 +441,63 @@ class BcPreviewManager {
     })
 
     this.disposables.push(listener)
+  }
+
+  async openReferencedFile(ref, bcs) {
+    // ref is either a band number (e.g., "n3") or BC-ID (e.g., "CA_n3B")
+    // bcs is the BCS-ID if applicable (or null)
+    
+    const bcFolder = this.config.raw.get('bandCombinationFolder', '')
+    if (!bcFolder) return
+    
+    const absFolder = path.isAbsolute(bcFolder) 
+      ? bcFolder 
+      : this.config.wsRoot ? path.join(this.config.wsRoot, bcFolder) : bcFolder
+    
+    if (!fs.existsSync(absFolder)) return
+    
+    // Determine filename
+    let filename
+    if (ref.startsWith('n') && !ref.includes('_')) {
+      // Band number: n3.json
+      filename = `${ref}.json`
+    } else {
+      // BC-ID: CA_n3B.json or DC_n3B-n78C.json
+      filename = `${ref}.json`
+    }
+    
+    // Search for the file recursively
+    const filePath = this.findFileRecursive(absFolder, filename)
+    
+    if (filePath) {
+      // Open via the command to get both editor and preview
+      await vscode.commands.executeCommand('specpress.openBcPreview', filePath)
+    } else {
+      vscode.window.showWarningMessage(`Referenced file not found: ${filename}`)
+    }
+  }
+  
+  findFileRecursive(dir, filename) {
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true })
+      
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name)
+        
+        if (entry.isFile() && entry.name === filename) {
+          return fullPath
+        }
+        
+        if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== '.git') {
+          const found = this.findFileRecursive(fullPath, filename)
+          if (found) return found
+        }
+      }
+    } catch (e) {
+      // Skip inaccessible directories
+    }
+    
+    return null
   }
 
   disposeListeners() {

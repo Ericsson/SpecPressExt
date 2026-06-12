@@ -267,7 +267,7 @@ function activate(context) {
         vscode.window.showErrorMessage('No file selected for BC preview')
         return
       }
-      openBcPreview(bcPreviewManager, filePath)
+      openBcPreview(bcPreviewManager, filePath, bcTreeView)
     })
   )
 

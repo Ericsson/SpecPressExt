@@ -24,6 +24,8 @@ class BcTreeProvider {
     this.filterCarriersMode = 'exactly' // 'exactly', 'atLeast', or 'upTo'
     this.filterProperties = [] // Array of property names: 'intraBand', 'fr1', 'fr2', 'nr', 'sul'
     this.filterModifiedOnly = false // Show only git-modified files
+    this.filterUlNotes = [] // Array of UL note keys
+    this.filterDlNotes = [] // Array of DL note keys
     this.modifiedFilesCache = null // Cached set of modified file paths
     // Type filters (what to load)
     this.loadCA = true
@@ -40,7 +42,7 @@ class BcTreeProvider {
     this.updateTreeTitle()
   }
 
-  async setFilters(bcId, bands, bandsMode, carriers, carriersMode, properties, modifiedOnly) {
+  async setFilters(bcId, bands, bandsMode, carriers, carriersMode, properties, modifiedOnly, ulNotes, dlNotes) {
     this.filterBcId = (bcId || '').toLowerCase()
     this.filterBands = bands || []
     this.filterBandsMode = bandsMode || 'atLeast'
@@ -48,6 +50,8 @@ class BcTreeProvider {
     this.filterCarriersMode = carriersMode || 'exactly'
     this.filterProperties = properties || []
     this.filterModifiedOnly = modifiedOnly || false
+    this.filterUlNotes = ulNotes || []
+    this.filterDlNotes = dlNotes || []
     this.refresh()
   }
 
@@ -152,6 +156,43 @@ class BcTreeProvider {
           // If BC_ID parsing fails, exclude this item when properties are filtered
           return false
         }
+      }
+      
+      // Filter by UL notes
+      if (this.filterUlNotes.length > 0 && bc.data && bc.data.bcsList) {
+        let hasAnyUlNote = false
+        for (const bcs of bc.data.bcsList) {
+          if (bcs.ulConfigList) {
+            for (const ulConfig of bcs.ulConfigList) {
+              if (ulConfig.notes) {
+                for (const noteKey of this.filterUlNotes) {
+                  if (ulConfig.notes[noteKey] === true) {
+                    hasAnyUlNote = true
+                    break
+                  }
+                }
+              }
+              if (hasAnyUlNote) break
+            }
+          }
+          if (hasAnyUlNote) break
+        }
+        if (!hasAnyUlNote) return false
+      }
+      
+      // Filter by DL notes (BC-level notes)
+      if (this.filterDlNotes.length > 0) {
+        if (!bc.data || !bc.data.notes) {
+          return false
+        }
+        let hasAnyDlNote = false
+        for (const noteKey of this.filterDlNotes) {
+          if (bc.data.notes[noteKey] === true) {
+            hasAnyDlNote = true
+            break
+          }
+        }
+        if (!hasAnyDlNote) return false
       }
       
       return true

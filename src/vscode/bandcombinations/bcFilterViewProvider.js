@@ -29,7 +29,9 @@ class BcFilterViewProvider {
               message.carriers,
               message.carriersMode,
               message.properties,
-              message.modifiedOnly
+              message.modifiedOnly,
+              message.ulNotes,
+              message.dlNotes
             )
             
             // Re-enable filter button
@@ -37,7 +39,7 @@ class BcFilterViewProvider {
           }, 10)
           break
         case 'clear':
-          this.bcTreeProvider.setFilters('', [], 'atLeast', '', 'exactly', [], false)
+          this.bcTreeProvider.setFilters('', [], 'atLeast', '', 'exactly', [], false, [], [])
           webviewView.webview.html = this.getHtmlContent()
           break
         case 'toggleType':
@@ -177,7 +179,8 @@ class BcFilterViewProvider {
       padding: 4px 8px;
       cursor: pointer;
     }
-    .band-option:hover {
+    .band-option:hover,
+    .band-option.selected {
       background: var(--vscode-list-hoverBackground);
     }
     .band-mode-toggle {
@@ -267,6 +270,24 @@ class BcFilterViewProvider {
   </div>
   
   <div class="filter-group">
+    <label>UL Notes:</label>
+    <div class="band-chips" id="filterUlNotesChips"></div>
+    <div class="band-input-container">
+      <input type="text" id="filterUlNotesInput" placeholder="Type UL note (e.g., pc2)" />
+      <div class="band-autocomplete" id="filterUlNotesAutocomplete"></div>
+    </div>
+  </div>
+  
+  <div class="filter-group">
+    <label>DL Notes:</label>
+    <div class="band-chips" id="filterDlNotesChips"></div>
+    <div class="band-input-container">
+      <input type="text" id="filterDlNotesInput" placeholder="Type DL note (e.g., intraReq)" />
+      <div class="band-autocomplete" id="filterDlNotesAutocomplete"></div>
+    </div>
+  </div>
+  
+  <div class="filter-group">
     <label>Number of Carriers:</label>
     <input type="number" id="filterCarriers" placeholder="e.g., 2" min="1" />
     <div class="band-mode-toggle" style="margin-top: 6px;">
@@ -299,6 +320,12 @@ class BcFilterViewProvider {
     const filterBandInput = document.getElementById('filterBandInput');
     const filterBandChips = document.getElementById('filterBandChips');
     const filterBandAutocomplete = document.getElementById('filterBandAutocomplete');
+    const filterUlNotesInput = document.getElementById('filterUlNotesInput');
+    const filterUlNotesChips = document.getElementById('filterUlNotesChips');
+    const filterUlNotesAutocomplete = document.getElementById('filterUlNotesAutocomplete');
+    const filterDlNotesInput = document.getElementById('filterDlNotesInput');
+    const filterDlNotesChips = document.getElementById('filterDlNotesChips');
+    const filterDlNotesAutocomplete = document.getElementById('filterDlNotesAutocomplete');
     const bandModeOnly = document.getElementById('bandModeOnly');
     const bandModeAtLeast = document.getElementById('bandModeAtLeast');
     const filterCarriersInput = document.getElementById('filterCarriers');
@@ -312,10 +339,15 @@ class BcFilterViewProvider {
     let propState = { intraBand: false, fr1: false, fr2: false, nr: false, sul: false };
     let modifiedOnly = false;
     let selectedBands = [];
+    let selectedUlNotes = [];
+    let selectedDlNotes = [];
     let bandsMode = 'atLeast';
     let carriersMode = 'exactly';
     let availableBands = [];
-    
+    let availableUlNotes = ['fLim3450_3700', 'n5A-n8A_restrictions', 'n26_DualPA', 'pc1p5', 'pc1p5_2tx', 'pc1p5_3tx', 'pc2', 'pc2_2tx', 'pc2_3tx', 'Rel-18_800MHzUL', 'ul_n5', 'ul_n26_opt'];
+    let availableDlNotes = ['intraReq', 'lowBandSwitchingAllowed', 'lowBandSwitchingOnly', 'n7_n38', 'n28_703U_758D', 'n28_718U_773D', 'n77_RxTx', 'noSimRxTx', 'noSimRxTx_noRxSensitivitySection', 'psdi_6dB', 'psdi_6dB_r19', 'Rel-18_1600MHzDL', 'ul_n28'];
+    let ulNotesSelectedIndex = -1;
+    let dlNotesSelectedIndex = -1;
     const typeToggleCA = document.getElementById('typeToggleCA');
     const typeToggleDC = document.getElementById('typeToggleDC');
     const typeToggleBands = document.getElementById('typeToggleBands');
@@ -387,6 +419,40 @@ class BcFilterViewProvider {
       });
     }
     
+    function renderUlNotesChips() {
+      filterUlNotesChips.innerHTML = selectedUlNotes.map(note => 
+        \`<div class="band-chip">
+          <span>\${note}</span>
+          <span class="band-chip-remove" data-note="\${note}">×</span>
+        </div>\`
+      ).join('');
+      
+      filterUlNotesChips.querySelectorAll('.band-chip-remove').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const note = e.target.getAttribute('data-note');
+          selectedUlNotes = selectedUlNotes.filter(n => n !== note);
+          renderUlNotesChips();
+        });
+      });
+    }
+    
+    function renderDlNotesChips() {
+      filterDlNotesChips.innerHTML = selectedDlNotes.map(note => 
+        \`<div class="band-chip">
+          <span>\${note}</span>
+          <span class="band-chip-remove" data-note="\${note}">×</span>
+        </div>\`
+      ).join('');
+      
+      filterDlNotesChips.querySelectorAll('.band-chip-remove').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const note = e.target.getAttribute('data-note');
+          selectedDlNotes = selectedDlNotes.filter(n => n !== note);
+          renderDlNotesChips();
+        });
+      });
+    }
+    
     function addBand(band) {
       if (band && !selectedBands.includes(band)) {
         selectedBands.push(band);
@@ -396,6 +462,46 @@ class BcFilterViewProvider {
       filterBandAutocomplete.classList.remove('show');
     }
     
+    function addUlNote(note) {
+      if (note && !selectedUlNotes.includes(note)) {
+        selectedUlNotes.push(note);
+        renderUlNotesChips();
+      }
+      filterUlNotesInput.value = '';
+      ulNotesSelectedIndex = -1;
+      filterUlNotesAutocomplete.classList.remove('show');
+    }
+    
+    function updateUlNotesSelection(options) {
+      options.forEach((opt, idx) => {
+        if (idx === ulNotesSelectedIndex) {
+          opt.classList.add('selected');
+        } else {
+          opt.classList.remove('selected');
+        }
+      });
+    }
+    
+    function addDlNote(note) {
+      if (note && !selectedDlNotes.includes(note)) {
+        selectedDlNotes.push(note);
+        renderDlNotesChips();
+      }
+      filterDlNotesInput.value = '';
+      dlNotesSelectedIndex = -1;
+      filterDlNotesAutocomplete.classList.remove('show');
+    }
+    
+    function updateDlNotesSelection(options) {
+      options.forEach((opt, idx) => {
+        if (idx === dlNotesSelectedIndex) {
+          opt.classList.add('selected');
+        } else {
+          opt.classList.remove('selected');
+        }
+      });
+    }
+    
     function updateAutocomplete(query) {
       if (!query) {
         filterBandAutocomplete.classList.remove('show');
@@ -403,6 +509,48 @@ class BcFilterViewProvider {
       }
       
       vscode.postMessage({ command: 'getBands', query });
+    }
+    
+    function updateUlNotesAutocomplete(query) {
+      const lowerQuery = (query || '').toLowerCase();
+      const filtered = availableUlNotes.filter(n => !selectedUlNotes.includes(n) && n.toLowerCase().includes(lowerQuery));
+      
+      if (filtered.length > 0) {
+        filterUlNotesAutocomplete.innerHTML = filtered.map((note, idx) => 
+          \`<div class="band-option" data-note="\${note}" data-index="\${idx}">\${note}</div>\`
+        ).join('');
+        
+        filterUlNotesAutocomplete.querySelectorAll('.band-option').forEach(opt => {
+          opt.addEventListener('click', (e) => {
+            addUlNote(e.target.getAttribute('data-note'));
+          });
+        });
+        
+        filterUlNotesAutocomplete.classList.add('show');
+      } else {
+        filterUlNotesAutocomplete.classList.remove('show');
+      }
+    }
+    
+    function updateDlNotesAutocomplete(query) {
+      const lowerQuery = (query || '').toLowerCase();
+      const filtered = availableDlNotes.filter(n => !selectedDlNotes.includes(n) && n.toLowerCase().includes(lowerQuery));
+      
+      if (filtered.length > 0) {
+        filterDlNotesAutocomplete.innerHTML = filtered.map((note, idx) => 
+          \`<div class="band-option" data-note="\${note}" data-index="\${idx}">\${note}</div>\`
+        ).join('');
+        
+        filterDlNotesAutocomplete.querySelectorAll('.band-option').forEach(opt => {
+          opt.addEventListener('click', (e) => {
+            addDlNote(e.target.getAttribute('data-note'));
+          });
+        });
+        
+        filterDlNotesAutocomplete.classList.add('show');
+      } else {
+        filterDlNotesAutocomplete.classList.remove('show');
+      }
     }
     
     window.addEventListener('message', event => {
@@ -440,6 +588,10 @@ class BcFilterViewProvider {
       updateAutocomplete(e.target.value);
     });
     
+    filterBandInput.addEventListener('focus', () => {
+      updateAutocomplete(filterBandInput.value);
+    });
+    
     filterBandInput.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -453,6 +605,88 @@ class BcFilterViewProvider {
     
     filterBandInput.addEventListener('blur', () => {
       setTimeout(() => filterBandAutocomplete.classList.remove('show'), 200);
+    });
+    
+    filterUlNotesInput.addEventListener('input', (e) => {
+      ulNotesSelectedIndex = -1;
+      updateUlNotesAutocomplete(e.target.value);
+    });
+    
+    filterUlNotesInput.addEventListener('focus', () => {
+      ulNotesSelectedIndex = -1;
+      updateUlNotesAutocomplete(filterUlNotesInput.value);
+    });
+    
+    filterUlNotesInput.addEventListener('keydown', (e) => {
+      const options = filterUlNotesAutocomplete.querySelectorAll('.band-option');
+      if (options.length === 0) return;
+      
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        ulNotesSelectedIndex = Math.min(ulNotesSelectedIndex + 1, options.length - 1);
+        updateUlNotesSelection(options);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        ulNotesSelectedIndex = Math.max(ulNotesSelectedIndex - 1, -1);
+        updateUlNotesSelection(options);
+      }
+    });
+    
+    filterUlNotesInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const options = filterUlNotesAutocomplete.querySelectorAll('.band-option');
+        if (ulNotesSelectedIndex >= 0 && ulNotesSelectedIndex < options.length) {
+          addUlNote(options[ulNotesSelectedIndex].getAttribute('data-note'));
+        } else if (options.length > 0) {
+          addUlNote(options[0].getAttribute('data-note'));
+        }
+      }
+    });
+    
+    filterUlNotesInput.addEventListener('blur', () => {
+      setTimeout(() => filterUlNotesAutocomplete.classList.remove('show'), 200);
+    });
+    
+    filterDlNotesInput.addEventListener('input', (e) => {
+      dlNotesSelectedIndex = -1;
+      updateDlNotesAutocomplete(e.target.value);
+    });
+    
+    filterDlNotesInput.addEventListener('focus', () => {
+      dlNotesSelectedIndex = -1;
+      updateDlNotesAutocomplete(filterDlNotesInput.value);
+    });
+    
+    filterDlNotesInput.addEventListener('keydown', (e) => {
+      const options = filterDlNotesAutocomplete.querySelectorAll('.band-option');
+      if (options.length === 0) return;
+      
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        dlNotesSelectedIndex = Math.min(dlNotesSelectedIndex + 1, options.length - 1);
+        updateDlNotesSelection(options);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        dlNotesSelectedIndex = Math.max(dlNotesSelectedIndex - 1, -1);
+        updateDlNotesSelection(options);
+      }
+    });
+    
+    filterDlNotesInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const options = filterDlNotesAutocomplete.querySelectorAll('.band-option');
+        if (dlNotesSelectedIndex >= 0 && dlNotesSelectedIndex < options.length) {
+          addDlNote(options[dlNotesSelectedIndex].getAttribute('data-note'));
+        } else if (options.length > 0) {
+          addDlNote(options[0].getAttribute('data-note'));
+        }
+      }
+    });
+    
+    filterDlNotesInput.addEventListener('blur', () => {
+      setTimeout(() => filterDlNotesAutocomplete.classList.remove('show'), 200);
     });
     
     bandModeOnly.addEventListener('click', () => {
@@ -503,7 +737,9 @@ class BcFilterViewProvider {
         carriers: filterCarriersInput.value,
         carriersMode: carriersMode,
         properties: activeProps,
-        modifiedOnly: modifiedOnly
+        modifiedOnly: modifiedOnly,
+        ulNotes: selectedUlNotes,
+        dlNotes: selectedDlNotes
       });
     }
     
@@ -511,6 +747,8 @@ class BcFilterViewProvider {
     actionClearBtn.addEventListener('click', () => {
       filterBcIdInput.value = '';
       selectedBands = [];
+      selectedUlNotes = [];
+      selectedDlNotes = [];
       bandsMode = 'atLeast';
       bandModeAtLeast.classList.add('active');
       bandModeOnly.classList.remove('active');
@@ -528,6 +766,8 @@ class BcFilterViewProvider {
       modifiedOnly = false;
       updateToggleState(gitModifiedOnly, false);
       renderBandChips();
+      renderUlNotesChips();
+      renderDlNotesChips();
       vscode.postMessage({ command: 'clear' });
     });
     

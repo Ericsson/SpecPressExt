@@ -144,6 +144,17 @@ Added `specpress.bandCombinationFolder` configuration parameter (set to `"."`) i
 - Live preview updates when editing JSON files (500ms debounce) in single-BC mode
 - Multi-BC preview shows up to 100 filtered entries in a single table (eye icon toolbar button)
 - Export git diff between any two commits or commit and local files (diff icon toolbar button)
+- **Footnotes for notes**: UL and DL notes appear as superscript text with tooltips
+  - UL notes (e.g., `{"pc2": true}`) appear after band numbers: `n25<sup title="...">pc2</sup>`
+  - DL notes (BC-level) appear after BC-ID: `CA_n77A-n77A<sup title="...">intraReq</sup>`
+  - Multiple notes separated by comma and space: `<sup>pc2</sup>, <sup>pc1p5</sup>`
+  - Tooltip shows full description from JSON schema on hover
+- **Clickable reference links**: Referenced components (refComponents) are rendered as clickable links
+  - Band references (e.g., `n3`) link to band file (`n3.json`)
+  - BC references (e.g., `CA_n3B_BCS0`) link to BC file (`CA_n3B.json`)
+  - Clicking opens both JSON editor and HTML preview
+  - Links styled with VS Code theme colors
+  - Tree view regains focus after opening for easy keyboard navigation
 
 **Testing note:** There was a JSON syntax error in `package.json` (unescaped backslash in regex) that prevented the extension from loading. This has been fixed. Now press F5 to see the BC pane.
 
@@ -227,7 +238,21 @@ A VS Code task is configured in `jsvalidator/.vscode/tasks.json` bound to a keyb
 
 `RAN4JsonEncoder.writeValue()` now sorts object keys with `Object.keys(...).sort()` when serializing plain objects (affects `notes` fields).
 
-### BandCombinations.ts — UL config sorting
+### BandCombinations.ts — Footnotes and clickable links (new)
+
+Added note description functions and HTML link generation:
+- `getUlNoteDescription(noteKey)` — returns description text for UL notes from JSON schema
+- `getBcNoteDescription(noteKey)` — returns description text for DL (BC-level) notes from JSON schema
+- `UlConfig.toStringWithNotes()` — generates HTML with superscript footnotes for notes
+  - Each note rendered as `<sup title="description">noteKey</sup>`
+  - Multiple notes separated by ", "
+  - Used by `BCS.toHTML()` for UL configurations column
+- `BC.toHTML()` — adds superscript footnotes to DL Configuration column for BC-level notes
+  - Same format as UL notes with comma-space separation
+- `RefComponent.toHTMLLink()` — generates clickable HTML links for referenced components
+  - Band references: `<a href="#" class="bc-ref-link" data-ref="n3">n3</a>`
+  - BC references: `<a href="#" class="bc-ref-link" data-ref="CA_n3B" data-bcs="0">CA_n3B_BCS0</a>`
+  - Used by `BandEntry.toHTML()` for displaying refComponents as links
 
 `BCS.toJSON()` sorts `ulConfigList` before writing: band numbers first (by numeric value), then BC-IDs (using `BC_ID.lessThan()`).
 
@@ -243,3 +268,71 @@ A VS Code task is configured in `jsvalidator/.vscode/tasks.json` bound to a keyb
 ### Utils.ts — graceful error handling in _loadFiles
 
 `BaseList._loadFiles()` now catches exceptions from `_createEntry()`. In `--no-abort` mode, it logs the error with file path context and continues loading remaining files instead of crashing.
+
+## Future: Merge jsvalidator into specpress (planned)
+
+**Motivation:**
+- Reduce maintenance burden from 3 repos (SpecPressExt, specpress, jsvalidator) to 2 repos
+- specpress is already published as npm package and used in CI pipelines
+- jsvalidator is 3GPP RAN4 tooling, natural fit with specpress (3GPP spec tooling)
+- Unified versioning for all 3GPP tools
+- SpecPressExt would only depend on `specpress` (not specpress + jsvalidator)
+
+**Proposed approach: Option 1 - Keep TypeScript for RAN4, add targeted build**
+
+**Structure:**
+```
+specpress/
+  lib/
+    common/           ← existing specpress common code (JS)
+    md2html/          ← existing markdown-to-HTML (JS)
+    md2docx/          ← existing markdown-to-DOCX (JS)
+    ran4/             ← NEW: jsvalidator code moved here (TS)
+      BC_ID.ts
+      BWC_ID.ts
+      BandCombinations.ts
+      DualConnectivity.ts
+      ChannelBandwidthPerBand.ts
+      RAN4DataHandler.ts
+      ValidateData.ts
+      ...
+    cli/
+      export-html.js
+      export-docx.js
+      validate-ran4.js  ← NEW: CLI wrapper for RAN4 validation
+  test/
+    ran4/             ← NEW: jsvalidator tests moved here
+  package.json        ← exports: {"./lib/ran4/*": "./dist/lib/ran4/*"}
+  tsconfig.json       ← NEW: compiles lib/ran4/**/*.ts to dist/lib/ran4/
+```
+
+**Benefits:**
+- jsvalidator keeps TypeScript (type safety for complex data models)
+- Existing specpress JS code unchanged (no migration needed)
+- Build step isolated to RAN4 code only
+- CI pipelines: `npm install specpress && node node_modules/specpress/lib/cli/validate-ran4.js`
+- SpecPressExt: `import { BC_ID } from 'specpress/lib/ran4/BC_ID.js'`
+- Other projects: `npm install specpress` then import RAN4 classes
+
+**Migration steps:**
+1. Move `jsvalidator/src/` → `specpress/lib/ran4/`
+2. Move `jsvalidator/test/` → `specpress/test/ran4/`
+3. Add TypeScript to specpress devDependencies
+4. Add `tsconfig.json` for RAN4 folder compilation
+5. Update `package.json` exports and build scripts
+6. Add `validate-ran4.js` CLI script
+7. Update specpress README with RAN4 documentation
+8. Update SpecPressExt imports: `ran4-jsvalidator/...` → `specpress/lib/ran4/...`
+9. Publish new specpress version
+10. Archive jsvalidator repo with redirect notice
+
+**Future evolution path (optional):**
+- **Phase 1:** RAN4 code in TypeScript (as above)
+- **Phase 2:** Enable `"allowJs": true` in tsconfig to allow TS/JS coexistence
+- **Phase 3:** Gradually convert existing JS files to TS (non-breaking, at own pace)
+
+**TypeScript/JavaScript mix:**
+- Option 1 allows TS for RAN4 while keeping existing code as JS
+- Can later migrate entire specpress to TypeScript incrementally
+- `"allowJs": true` enables gradual migration without breaking changes
+- Consumers always get compiled JS, regardless of source language

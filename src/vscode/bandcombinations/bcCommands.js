@@ -172,8 +172,17 @@ async function bcRefresh(bcTreeProvider) {
   bcTreeProvider.refresh()
 }
 
-async function openBcPreview(bcPreviewManager, filePath) {
+async function openBcPreview(bcPreviewManager, filePath, bcTreeView) {
+  const vscode = require('vscode')
+  
+  // Open preview (opens JSON editor + HTML preview)
   await bcPreviewManager.openPreview(filePath)
+  
+  // Refocus the Band Combinations tree view to allow keyboard navigation
+  if (bcTreeView) {
+    // Using the tree view object directly to focus
+    await vscode.commands.executeCommand('specpressBcTree.focus')
+  }
 }
 
 async function configureBcFolder() {
