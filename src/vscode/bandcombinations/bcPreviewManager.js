@@ -121,6 +121,12 @@ class BcPreviewManager {
       const { HtmlTable } = await import('ran4-jsvalidator/src/HtmlTable.js')
       const { BC_ID } = await import('ran4-jsvalidator/src/BC_ID.js')
       
+      // Load note descriptions from first BC file (assume all use same schema)
+      const firstBc = bcFiles[0]
+      const firstContent = fs.readFileSync(firstBc.path, 'utf8')
+      const firstData = JSON.parse(firstContent)
+      const { ulNoteDescriptions, dlNoteDescriptions } = await this.loadNoteDescriptions(firstData)
+      
       // Sort bcFiles using BC_ID comparison (same as tree view)
       const sortedFiles = bcFiles.slice().sort((a, b) => {
         try {
@@ -143,7 +149,7 @@ class BcPreviewManager {
           const content = fs.readFileSync(bcFile.path, 'utf8')
           const data = JSON.parse(content)
           const bc = new BC(data)
-          bc.toHTML(htmlTable)
+          bc.toHTML(htmlTable, 0, 0, ulNoteDescriptions, dlNoteDescriptions)
         } catch (e) {
           // Skip invalid BC files
         }
@@ -162,6 +168,9 @@ class BcPreviewManager {
       const { BC, BandCombinationList } = await import('ran4-jsvalidator/src/BandCombinations.js')
       const { HtmlTable } = await import('ran4-jsvalidator/src/HtmlTable.js')
       
+      // Load note descriptions from schema
+      const { ulNoteDescriptions, dlNoteDescriptions } = await this.loadNoteDescriptions(data)
+      
       // Create BC instance and render to HtmlTable
       const bc = new BC(data)
       const htmlTable = new HtmlTable()
@@ -169,7 +178,7 @@ class BcPreviewManager {
       // Add header row using jsvalidator's standard headers
       BandCombinationList.addTableHeaders(htmlTable)
       
-      bc.toHTML(htmlTable)
+      bc.toHTML(htmlTable, 0, 0, ulNoteDescriptions, dlNoteDescriptions)
       
       // Generate HTML from HtmlTable
       const tableHtml = this.htmlTableToString(htmlTable)
@@ -477,6 +486,61 @@ class BcPreviewManager {
     }
   }
   
+  async loadNoteDescriptions(bcData) {
+    const ulNoteDescriptions = {}
+    const dlNoteDescriptions = {}
+    
+    try {
+      const bcFolder = this.config.raw.get('bandCombinationFolder', '')
+      if (!bcFolder) return { ulNoteDescriptions, dlNoteDescriptions }
+      
+      const absFolder = path.isAbsolute(bcFolder) 
+        ? bcFolder 
+        : this.config.wsRoot ? path.join(this.config.wsRoot, bcFolder) : bcFolder
+      
+      // Determine schema file based on BC type (CA vs DC)
+      const isDC = bcData.bcId && bcData.bcId.startsWith('DC_')
+      const schemaFileName = isDC 
+        ? 'BandCombinationsDualConnectivity.json'
+        : 'BandCombinationsCarrierAggregation.json'
+      
+      // Schema files are typically in common/jsonSchemas folder relative to BC folder
+      const schemaPath = path.join(absFolder, 'common', 'jsonSchemas', schemaFileName)
+      
+      if (fs.existsSync(schemaPath)) {
+        const schemaContent = fs.readFileSync(schemaPath, 'utf8')
+        const schema = JSON.parse(schemaContent)
+        
+        // Extract UL note descriptions
+        const ulConfigSchema = isDC
+          ? schema.properties?.ulConfigList?.items?.properties?.notes?.properties
+          : schema.properties?.bcsList?.items?.properties?.ulConfigList?.items?.properties?.notes?.properties
+        
+        if (ulConfigSchema) {
+          for (const [key, value] of Object.entries(ulConfigSchema)) {
+            if (value.description) {
+              ulNoteDescriptions[key] = value.description
+            }
+          }
+        }
+        
+        // Extract DL (BC-level) note descriptions
+        const dlNotesSchema = schema.properties?.notes?.properties
+        if (dlNotesSchema) {
+          for (const [key, value] of Object.entries(dlNotesSchema)) {
+            if (value.description) {
+              dlNoteDescriptions[key] = value.description
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // Silently fall back to empty descriptions
+    }
+    
+    return { ulNoteDescriptions, dlNoteDescriptions }
+  }
+
   findFileRecursive(dir, filename) {
     try {
       const entries = fs.readdirSync(dir, { withFileTypes: true })

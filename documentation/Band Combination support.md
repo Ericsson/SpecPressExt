@@ -240,19 +240,23 @@ A VS Code task is configured in `jsvalidator/.vscode/tasks.json` bound to a keyb
 
 ### BandCombinations.ts — Footnotes and clickable links (new)
 
-Added note description functions and HTML link generation:
-- `getUlNoteDescription(noteKey)` — returns description text for UL notes from JSON schema
-- `getBcNoteDescription(noteKey)` — returns description text for DL (BC-level) notes from JSON schema
-- `UlConfig.toStringWithNotes()` — generates HTML with superscript footnotes for notes
+Added HTML rendering enhancements for notes and references:
+- `UlConfig.toStringWithNotes(ulNoteDescriptions?)` — generates HTML with superscript footnotes for notes
+  - Accepts optional description map loaded from schema at runtime
   - Each note rendered as `<sup title="description">noteKey</sup>`
   - Multiple notes separated by ", "
-  - Used by `BCS.toHTML()` for UL configurations column
-- `BC.toHTML()` — adds superscript footnotes to DL Configuration column for BC-level notes
+  - Falls back to note key if description not provided
+- `BCS.toHTML()` — updated to accept and pass `ulNoteDescriptions` parameter
+- `BC.toHTML(aHtmlTable, aRow, aColumn, ulNoteDescriptions?, dlNoteDescriptions?)` — adds superscript footnotes to DL Configuration column
+  - Accepts optional description maps for both UL and DL notes
   - Same format as UL notes with comma-space separation
+  - Descriptions loaded from schema by caller (SpecPressExt)
 - `RefComponent.toHTMLLink()` — generates clickable HTML links for referenced components
   - Band references: `<a href="#" class="bc-ref-link" data-ref="n3">n3</a>`
   - BC references: `<a href="#" class="bc-ref-link" data-ref="CA_n3B" data-bcs="0">CA_n3B_BCS0</a>`
   - Used by `BandEntry.toHTML()` for displaying refComponents as links
+
+**Architecture**: Note descriptions are NOT hardcoded in jsvalidator. They are loaded from JSON schema files at runtime by SpecPressExt and passed as parameters. This ensures descriptions stay synchronized with the schema as it evolves.
 
 `BCS.toJSON()` sorts `ulConfigList` before writing: band numbers first (by numeric value), then BC-IDs (using `BC_ID.lessThan()`).
 
