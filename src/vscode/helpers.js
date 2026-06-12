@@ -312,15 +312,13 @@ function insertOmittedMarkers(content, selectedFiles, allFiles) {
 
 /**
  * Generates a filename from CR cover page data.
- * Format: YYYY-MM-DD_HH-MM-SS_{tdoc}_CR{number}[r{rev}]_{title}.docx (if TDoc Number present)
- *     or: YYYY-MM-DD_HH-MM-SS_CR{number}[r{rev}]_{title}.docx (if TDoc Number absent)
- * Example: 2024-03-15_14-30-45_R2-2600023_CR1234r2_Correction_to_handover.docx
- *      or: 2024-03-15_14-30-45_CR1234r2_Correction_to_handover.docx
+ * Format: YYYY-MM-DD_HH-MM-SS_R{release}-{spec}_CR{number}[r{rev}]_{title}.docx
+ * Example: 2024-03-15_14-30-45_R19-38.413_CR1234r2_Correction_to_handover.docx
  * 
  * The date/time is the current UTC time, not from the CR data.
  * The revision suffix (r{rev}) is only included if rev > 0.
  * 
- * @param {object} crData - CR cover page data
+ * @param {object} crData - CR cover page data with Release, Specification, CR, rev, Title
  * @returns {string|null} - Generated filename or null if data is incomplete
  */
 function generateCRFilename(crData) {
@@ -328,16 +326,21 @@ function generateCRFilename(crData) {
   
   try {
     // Extract fields
-    const tdoc = crData['TDoc Number'] || null
+    const release = crData.Release || null
+    const spec = crData.Specification || null
     const crNumber = crData.CR || null
     const rev = crData.rev || 0
     const title = crData.Title || null
     
-    // Validate required fields
-    if (!crNumber || !title) return null
+    // Validate required fields (Release, Specification, CR, Title must be present and non-zero)
+    if (!release || !spec || !crNumber || !title) return null
+    if (typeof title !== 'string' || title.trim() === '') return null
     
     // Generate current timestamp (YYYY-MM-DD_HH-MM-SS)
     const timestamp = formatExportTimestamp().replace(/ /g, '_')
+    
+    // Format release-spec (e.g., R19-38.413)
+    const releaseSpec = `R${release}-${spec}`
     
     // Format CR number with leading zeros (e.g., 0123)
     const crFormatted = crNumber.toString().padStart(4, '0')
@@ -353,15 +356,8 @@ function generateCRFilename(crData) {
       .replace(/^_|_$/g, '')           // Trim leading/trailing underscores
       .substring(0, 50)                // Limit length
     
-    // Build filename with or without TDoc Number
-    let filename
-    if (tdoc) {
-      // With TDoc: YYYY-MM-DD_HH-MM-SS_{tdoc}_CR{number}[r{rev}]_{title}.docx
-      filename = `${timestamp}_${tdoc}_CR${crFormatted}${revFormatted}_${titleSanitized}.docx`
-    } else {
-      // Without TDoc: YYYY-MM-DD_HH-MM-SS_CR{number}[r{rev}]_{title}.docx
-      filename = `${timestamp}_CR${crFormatted}${revFormatted}_${titleSanitized}.docx`
-    }
+    // Build filename: YYYY-MM-DD_HH-MM-SS_R{release}-{spec}_CR{number}[r{rev}]_{title}.docx
+    const filename = `${timestamp}_${releaseSpec}_CR${crFormatted}${revFormatted}_${titleSanitized}.docx`
     
     return filename
   } catch (e) {
