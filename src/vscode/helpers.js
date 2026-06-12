@@ -65,11 +65,15 @@ function findWinword() {
  * Shows a QuickPick with recent git commits for the user to choose from.
  * @param {string} repoRoot - Absolute path to the repository root.
  * @param {string} prompt - Placeholder text for the QuickPick.
- * @param {{localFilesOption?: boolean}} [options] - If localFilesOption is true, adds a "Local files" item at the top.
- * @returns {Promise<string|null>} The selected commit reference, empty string for local files, or null if cancelled.
+ * @param {{localFilesOption?: boolean, noneOption?: boolean}} [options] - If localFilesOption is true, adds a "Local files" item. If noneOption is true, adds a "None" item at the top.
+ * @returns {Promise<string|null>} The selected commit reference, empty string for local files, 'NONE' for none option, or null if cancelled.
  */
 async function pickCommit(repoRoot, prompt, options = {}) {
   const items = []
+
+  if (options.noneOption) {
+    items.push({ label: '$(circle-slash) None (finish with current versions)', description: '', commitRef: 'NONE', alwaysShow: true })
+  }
 
   if (options.localFilesOption) {
     items.push({ label: '$(file-directory) Local files (current workspace)', description: '', commitRef: '', alwaysShow: true })
@@ -306,6 +310,65 @@ function insertOmittedMarkers(content, selectedFiles, allFiles) {
   return result
 }
 
+/**
+ * Generates a filename from CR cover page data.
+ * Format: YYYY-MM-DD_HH-MM-SS_{tdoc}_CR{number}[r{rev}]_{title}.docx (if TDoc Number present)
+ *     or: YYYY-MM-DD_HH-MM-SS_CR{number}[r{rev}]_{title}.docx (if TDoc Number absent)
+ * Example: 2024-03-15_14-30-45_R2-2600023_CR1234r2_Correction_to_handover.docx
+ *      or: 2024-03-15_14-30-45_CR1234r2_Correction_to_handover.docx
+ * 
+ * The date/time is the current UTC time, not from the CR data.
+ * The revision suffix (r{rev}) is only included if rev > 0.
+ * 
+ * @param {object} crData - CR cover page data
+ * @returns {string|null} - Generated filename or null if data is incomplete
+ */
+function generateCRFilename(crData) {
+  if (!crData) return null
+  
+  try {
+    // Extract fields
+    const tdoc = crData['TDoc Number'] || null
+    const crNumber = crData.CR || null
+    const rev = crData.rev || 0
+    const title = crData.Title || null
+    
+    // Validate required fields
+    if (!crNumber || !title) return null
+    
+    // Generate current timestamp (YYYY-MM-DD_HH-MM-SS)
+    const timestamp = formatExportTimestamp().replace(/ /g, '_')
+    
+    // Format CR number with leading zeros (e.g., 0123)
+    const crFormatted = crNumber.toString().padStart(4, '0')
+    
+    // Format revision (e.g., r2, or empty for rev 0 or undefined)
+    const revFormatted = (rev && rev > 0) ? `r${rev}` : ''
+    
+    // Sanitize title for filename (replace invalid chars with underscore)
+    const titleSanitized = title
+      .replace(/[<>:"/\\|?*]/g, '_')  // Replace invalid filename chars
+      .replace(/\s+/g, '_')            // Replace spaces with underscore
+      .replace(/_+/g, '_')             // Collapse multiple underscores
+      .replace(/^_|_$/g, '')           // Trim leading/trailing underscores
+      .substring(0, 50)                // Limit length
+    
+    // Build filename with or without TDoc Number
+    let filename
+    if (tdoc) {
+      // With TDoc: YYYY-MM-DD_HH-MM-SS_{tdoc}_CR{number}[r{rev}]_{title}.docx
+      filename = `${timestamp}_${tdoc}_CR${crFormatted}${revFormatted}_${titleSanitized}.docx`
+    } else {
+      // Without TDoc: YYYY-MM-DD_HH-MM-SS_CR{number}[r{rev}]_{title}.docx
+      filename = `${timestamp}_CR${crFormatted}${revFormatted}_${titleSanitized}.docx`
+    }
+    
+    return filename
+  } catch (e) {
+    return null
+  }
+}
+
 module.exports = {
   NOT_CONFIGURED_MSG,
   formatExportTimestamp,
@@ -316,5 +379,6 @@ module.exports = {
   extractFilesFromCommit,
   insertOmittedMarkers,
   makeMermaidRenderer,
-  findWinword
+  findWinword,
+  generateCRFilename
 }
