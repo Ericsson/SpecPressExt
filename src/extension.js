@@ -23,6 +23,10 @@ const { validateCommentPositions } = require('./vscode/commenting/validateCommen
 const { selectCommentInTree, showCommentInSidebar } = require('./vscode/commenting/commentHelpers')
 const { extractSnippet } = require('./vscode/commenting/snippetExtractor')
 const { logger } = require('./vscode/logger')
+const { BcTreeProvider } = require('./vscode/bandcombinations/bcTreeProvider')
+const { BcFilterViewProvider } = require('./vscode/bandcombinations/bcFilterViewProvider')
+const { BcPreviewManager } = require('./vscode/bandcombinations/bcPreviewManager')
+const { bcValidate, bcOpenLog, bcRefresh, openBcPreview, configureBcFolder, bcNormalize, bcPreviewFiltered, bcExportGitDiff } = require('./vscode/bandcombinations/bcCommands')
 
 const config = new ConfigLoader()
 const state = new StateManager()
@@ -45,6 +49,15 @@ let commentDetailViewProvider = null
 
 /** @type {CommentFilterViewProvider|null} */
 let commentFilterViewProvider = null
+
+/** @type {BcTreeProvider|null} */
+let bcTreeProvider = null
+
+/** @type {BcFilterViewProvider|null} */
+let bcFilterViewProvider = null
+
+/** @type {BcPreviewManager|null} */
+let bcPreviewManager = null
 
 /**
  * Activates the extension. Registers all commands and listeners.
@@ -217,6 +230,48 @@ function activate(context) {
       { supportsMultipleEditorsPerDocument: false }
     )
   )
+
+  // Initialize Band Combination pane (always visible, shows config hint if not configured)
+  bcPreviewManager = new BcPreviewManager(state, config)
+  bcTreeProvider = new BcTreeProvider(config, bcPreviewManager)
+  bcFilterViewProvider = new BcFilterViewProvider(bcTreeProvider)
+
+  // Register BC tree view
+  const bcTreeView = vscode.window.createTreeView('specpressBcTree', {
+    treeDataProvider: bcTreeProvider,
+    showCollapseAll: false
+  })
+  bcTreeProvider.treeView = bcTreeView
+  context.subscriptions.push(bcTreeView)
+
+  // Register BC filter view
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      'specpressBcFilter',
+      bcFilterViewProvider
+    )
+  )
+
+  // Register BC commands
+  context.subscriptions.push(
+    vscode.commands.registerCommand('specpress.bcValidate', () => bcValidate(config)),
+    vscode.commands.registerCommand('specpress.bcOpenLog', () => bcOpenLog(config)),
+    vscode.commands.registerCommand('specpress.bcRefresh', () => bcRefresh(bcTreeProvider)),
+    vscode.commands.registerCommand('specpress.configureBcFolder', () => configureBcFolder()),
+    vscode.commands.registerCommand('specpress.bcNormalize', () => bcNormalize()),
+    vscode.commands.registerCommand('specpress.bcPreviewFiltered', () => bcPreviewFiltered(bcTreeProvider, bcPreviewManager)),
+    vscode.commands.registerCommand('specpress.bcExportGitDiff', () => bcExportGitDiff(config)),
+    vscode.commands.registerCommand('specpress.openBcPreview', (uri) => {
+      const filePath = uri ? (uri.fsPath || uri) : null
+      if (!filePath) {
+        vscode.window.showErrorMessage('No file selected for BC preview')
+        return
+      }
+      openBcPreview(bcPreviewManager, filePath)
+    })
+  )
+
+  context.subscriptions.push(bcPreviewManager)
 
   context.subscriptions.push(
     vscode.commands.registerCommand('specpress.preview', () => {
@@ -733,6 +788,11 @@ function activate(context) {
         if (e.affectsConfiguration('specpress.enableDebugLogging')) {
           const enableLogging = config.raw.get('enableDebugLogging', false)
           logger.setEnabled(enableLogging)
+        }
+        
+        // Refresh BC tree if bandCombinationFolder changed
+        if (e.affectsConfiguration('specpress.bandCombinationFolder') && bcTreeProvider) {
+          bcTreeProvider.refresh()
         }
       }
     })

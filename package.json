@@ -16,8 +16,7 @@
     "url": "https://github.com/Ericsson/SpecPressExt.git"
   },
   "activationEvents": [
-    "onLanguage:markdown",
-    "onLanguage:asn1"
+    "onStartupFinished"
   ],
   "main": "./src/extension.js",
   "scripts": {
@@ -33,6 +32,11 @@
           "id": "specpress-comments",
           "title": "SpecPress Comments",
           "icon": "images/comment-unresolved.svg"
+        },
+        {
+          "id": "specpress-bandcombinations",
+          "title": "Band Combinations",
+          "icon": "$(list-tree)"
         }
       ]
     },
@@ -53,6 +57,18 @@
           "id": "specpressCommentDetail",
           "name": "Details",
           "type": "webview"
+        }
+      ],
+      "specpress-bandcombinations": [
+        {
+          "id": "specpressBcFilter",
+          "name": "Filter",
+          "type": "webview"
+        },
+        {
+          "id": "specpressBcTree",
+          "name": "Band Combinations",
+          "contextualTitle": "Band Combinations"
         }
       ]
     },
@@ -147,6 +163,44 @@
         "title": "Show Comment"
       },
       {
+        "command": "specpress.bcValidate",
+        "title": "Validate Band Combinations",
+        "icon": "$(play)"
+      },
+      {
+        "command": "specpress.bcOpenLog",
+        "title": "Open Validation Log",
+        "icon": "$(output)"
+      },
+      {
+        "command": "specpress.bcRefresh",
+        "title": "Refresh Band Combinations",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "specpress.openBcPreview",
+        "title": "Open Band Combination Preview"
+      },
+      {
+        "command": "specpress.configureBcFolder",
+        "title": "Configure Band Combination Folder"
+      },
+      {
+        "command": "specpress.bcNormalize",
+        "title": "SpecPress: Normalize Band Combination",
+        "icon": "$(symbol-namespace)"
+      },
+      {
+        "command": "specpress.bcPreviewFiltered",
+        "title": "Preview Filtered",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "specpress.bcExportGitDiff",
+        "title": "Export Git Diff",
+        "icon": "$(diff)"
+      },
+      {
         "command": "specpress.showDebugLog",
         "title": "SpecPress: Show Debug Log"
       }
@@ -172,6 +226,36 @@
           "command": "specpress.refreshCommentTree",
           "when": "view == specpressComments",
           "group": "navigation@4"
+        },
+        {
+          "command": "specpress.bcValidate",
+          "when": "view == specpressBcTree",
+          "group": "navigation@1"
+        },
+        {
+          "command": "specpress.bcOpenLog",
+          "when": "view == specpressBcTree",
+          "group": "navigation@2"
+        },
+        {
+          "command": "specpress.bcRefresh",
+          "when": "view == specpressBcTree",
+          "group": "navigation@3"
+        },
+        {
+          "command": "specpress.bcNormalize",
+          "when": "view == specpressBcTree",
+          "group": "navigation@4"
+        },
+        {
+          "command": "specpress.bcPreviewFiltered",
+          "when": "view == specpressBcTree",
+          "group": "navigation@5"
+        },
+        {
+          "command": "specpress.bcExportGitDiff",
+          "when": "view == specpressBcTree",
+          "group": "navigation@6"
         }
       ],
       "view/item/context": [
@@ -208,6 +292,16 @@
           "command": "specpress.openJsonTableEditor",
           "when": "resourceExtname == '.json'",
           "group": "specpress@4"
+        },
+        {
+          "command": "specpress.openBcPreview",
+          "when": "resourceExtname == '.json' && resourceFilename =~ /^(CA_|DC_).*\\.json$/",
+          "group": "specpress@5"
+        },
+        {
+          "command": "specpress.bcNormalize",
+          "when": "resourceExtname == '.json' && resourceFilename =~ /^(CA_|DC_).*\\.json$/",
+          "group": "specpress@6"
         }
       ],
       "webview/context": [
@@ -337,6 +431,11 @@
           "type": "string",
           "default": "",
           "description": "Display name for comments."
+        },
+        "specpress.bandCombinationFolder": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the 38.101 data repository root (containing common/, ts-38.101-1/, etc.). When set, the Band Combinations pane becomes available. Relative paths are resolved from the workspace root."
         },
         "specpress.enableDebugLogging": {
           "type": "boolean",
