@@ -1,187 +1,26 @@
-async function bcValidate(config) {
-  const vscode = require('vscode')
-  const path = require('path')
-  const os = require('os')
-  const fs = require('fs')
-  
-  const bcFolder = config.raw.get('bandCombinationFolder', '')
-  if (!bcFolder) {
-    vscode.window.showWarningMessage('bandCombinationFolder is not configured')
-    return
-  }
-  
-  const absFolder = path.isAbsolute(bcFolder) 
-    ? bcFolder 
-    : config.wsRoot ? path.join(config.wsRoot, bcFolder) : bcFolder
-  
-  if (!fs.existsSync(absFolder)) {
-    vscode.window.showErrorMessage(`bandCombinationFolder does not exist: ${absFolder}`)
-    return
-  }
-  
-  // Show quick pick for validation scope
-  const scopeOptions = [
-    { label: 'Bands only', value: 'bands' },
-    { label: 'Bands + CA', value: 'bands+ca' },
-    { label: 'Bands + CA + DC', value: 'bands+ca+dc' }
-  ]
-  
-  const scopePick = await vscode.window.showQuickPick(scopeOptions, {
-    placeHolder: 'Select validation scope',
-    title: 'Band Combination Validation'
-  })
-  
-  if (!scopePick) return
-  
-  // Show quick pick for validation options
-  const validationOptions = [
-    { label: 'Content validation', picked: true },
-    { label: 'Schema validation', picked: true }
-  ]
-  
-  const validationPicks = await vscode.window.showQuickPick(validationOptions, {
-    placeHolder: 'Select validation types (Space to toggle, Enter to confirm)',
-    title: 'Validation Options',
-    canPickMany: true
-  })
-  
-  if (!validationPicks) return
-  
-  const skipContentValidation = !validationPicks.some(p => p.label === 'Content validation')
-  const skipSchemaValidation = !validationPicks.some(p => p.label === 'Schema validation')
-  
-  // Generate log file path
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19)
-  const logPath = path.join(os.tmpdir(), `specpress-bc-validation-${timestamp}.log`)
-  
-  // Run validation with progress indicator
-  await vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title: 'Validating Band Combinations',
-      cancellable: false
-    },
-    async (progress) => {
-      try {
-        progress.report({ message: 'Loading jsvalidator...' })
-        const { loadAndValidateAll } = await import('ran4-jsvalidator/src/ValidateData.js')
-        const { logger } = await import('ran4-jsvalidator/src/Logger.js')
-        
-        progress.report({ message: 'Opening log file...' })
-        await logger.openFile(logPath)
-        
-        progress.report({ message: 'Loading and validating files...' })
-        
-        // Temporarily modify the load functions based on scope
-        let result
-        if (scopePick.value === 'bands') {
-          // Load bands only
-          const { RAN4DataHandler } = await import('ran4-jsvalidator/src/RAN4DataHandler.js')
-          const { LoadSchema } = await import('ran4-jsvalidator/src/JsonTools.js')
-          const db = new RAN4DataHandler()
-          
-          let schemaBand = null
-          if (!skipSchemaValidation) {
-            schemaBand = LoadSchema(path.join(absFolder, 'common/jsonSchemas/Band.json'))
-          }
-          
-          const r1 = db.chBwList.loadByPattern(absFolder, 'n*.json', skipContentValidation, schemaBand, false)
-          const exitCode = (r1.contentErrors > 0 ? 1 : 0) | (r1.schemaErrors > 0 ? 2 : 0)
-          result = { exitCode }
-        } else if (scopePick.value === 'bands+ca') {
-          // Load bands + CA
-          const { RAN4DataHandler } = await import('ran4-jsvalidator/src/RAN4DataHandler.js')
-          const { LoadSchema } = await import('ran4-jsvalidator/src/JsonTools.js')
-          const db = new RAN4DataHandler()
-          
-          let schemaBand = null
-          let schemaCA = null
-          if (!skipSchemaValidation) {
-            schemaBand = LoadSchema(path.join(absFolder, 'common/jsonSchemas/Band.json'))
-            schemaCA = LoadSchema(path.join(absFolder, 'common/jsonSchemas/BandCombinationsCarrierAggregation.json'))
-          }
-          
-          const r1 = db.chBwList.loadByPattern(absFolder, 'n*.json', skipContentValidation, schemaBand, false)
-          const r2 = db.bcList.loadByPattern(absFolder, 'CA_*.json', skipContentValidation, schemaCA, false)
-          const exitCode = ((r1.contentErrors + r2.contentErrors) > 0 ? 1 : 0) | ((r1.schemaErrors + r2.schemaErrors) > 0 ? 2 : 0)
-          result = { exitCode }
-        } else {
-          // Load all (bands + CA + DC)
-          result = loadAndValidateAll(absFolder, skipContentValidation, skipSchemaValidation, false)
-        }
-        
-        const schemaStatus = skipSchemaValidation ? 'skipped' : 'done'
-        const contentStatus = skipContentValidation ? 'skipped' : 'done'
-        logger.log(`Validation complete. Schema: ${schemaStatus}, Content: ${contentStatus}, Exit code: ${result.exitCode}`)
-        
-        await logger.close()
-        
-        progress.report({ message: 'Complete' })
-        
-        // Show result message
-        if (result.exitCode === 0) {
-          const action = await vscode.window.showInformationMessage(
-            'Validation completed successfully - no errors found',
-            'Open Log'
-          )
-          if (action === 'Open Log') {
-            const doc = await vscode.workspace.openTextDocument(logPath)
-            await vscode.window.showTextDocument(doc)
-          }
-        } else {
-          const errors = []
-          if (result.exitCode & 1) errors.push('content errors')
-          if (result.exitCode & 2) errors.push('schema errors')
-          
-          const action = await vscode.window.showErrorMessage(
-            `Validation failed with ${errors.join(' and ')}`,
-            'Open Log'
-          )
-          if (action === 'Open Log') {
-            const doc = await vscode.workspace.openTextDocument(logPath)
-            await vscode.window.showTextDocument(doc)
-          }
-        }
-        
-        // Store log path for "Open Log" button
-        bcValidate.lastLogPath = logPath
-      } catch (e) {
-        vscode.window.showErrorMessage(`Validation failed: ${e.message}`)
-      }
-    }
-  )
-}
-
-async function bcOpenLog(config) {
-  const vscode = require('vscode')
-  
-  if (!bcValidate.lastLogPath) {
-    vscode.window.showInformationMessage('No validation log available. Run validation first.')
-    return
-  }
-  
-  try {
-    const doc = await vscode.workspace.openTextDocument(bcValidate.lastLogPath)
-    await vscode.window.showTextDocument(doc)
-  } catch (e) {
-    vscode.window.showErrorMessage(`Failed to open log: ${e.message}`)
-  }
-}
-
 async function bcRefresh(bcTreeProvider) {
   bcTreeProvider.refresh()
 }
 
-async function openBcPreview(bcPreviewManager, filePath, bcTreeView) {
+async function openBcPreview(bcPreviewManager, filePath, bcTreeView, state) {
   const vscode = require('vscode')
+  const path = require('path')
   
-  // Open preview (opens JSON editor + HTML preview)
-  await bcPreviewManager.openPreview(filePath)
+  // Check if auto preview is enabled (default to enabled)
+  const autoPreviewEnabled = state.bcAutoPreviewEnabled !== undefined ? state.bcAutoPreviewEnabled : true
   
-  // Refocus the Band Combinations tree view to allow keyboard navigation
-  if (bcTreeView) {
-    // Using the tree view object directly to focus
-    await vscode.commands.executeCommand('specpressBcTree.focus')
+  if (autoPreviewEnabled) {
+    // Open both JSON editor + HTML preview
+    await bcPreviewManager.openPreview(filePath)
+    
+    // Refocus the Band Combinations tree view to allow keyboard navigation
+    if (bcTreeView) {
+      await vscode.commands.executeCommand('specpressBcTree.focus')
+    }
+  } else {
+    // Only open JSON editor
+    const doc = await vscode.workspace.openTextDocument(filePath)
+    await vscode.window.showTextDocument(doc, vscode.ViewColumn.One)
   }
 }
 
@@ -469,4 +308,24 @@ async function pickCommitForDiff(repoRoot, title, includeLocalOption = false) {
   }
 }
 
-module.exports = { bcValidate, bcOpenLog, bcRefresh, openBcPreview, configureBcFolder, bcNormalize, bcPreviewFiltered, bcExportGitDiff }
+async function bcTogglePreview(state) {
+  const vscode = require('vscode')
+  
+  // Get current state from extension state (default to true)
+  const currentState = state.bcAutoPreviewEnabled !== undefined ? state.bcAutoPreviewEnabled : true
+  const newState = !currentState
+  
+  // Store in state manager
+  state.bcAutoPreviewEnabled = newState
+  
+  // Update context for menu icon
+  await vscode.commands.executeCommand('setContext', 'specpress.bcAutoPreviewEnabled', newState)
+  
+  if (newState) {
+    vscode.window.showInformationMessage('Band Combination auto preview enabled')
+  } else {
+    vscode.window.showInformationMessage('Band Combination auto preview disabled')
+  }
+}
+
+module.exports = { bcRefresh, openBcPreview, configureBcFolder, bcNormalize, bcPreviewFiltered, bcExportGitDiff, bcTogglePreview }

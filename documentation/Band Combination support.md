@@ -88,15 +88,20 @@ Added `specpress.bandCombinationFolder` configuration parameter (set to `"."`) i
   - Filter and Clear buttons
   - Filters apply on button click or Enter key
   - Communicates with tree provider to update display
-- `bcCommands.js` — command handlers for validate, open log, refresh, open preview, normalize, configure folder, preview filtered, and export git diff
-  - `bcValidate` — runs jsvalidator validation with user-selectable scope and options:
-    - **Scope selector**: Bands only / Bands+CA / Bands+CA+DC
-    - **Validation type toggles**: Content validation (on/off), Schema validation (on/off)
-    - Progress indicator shows loading/validation status
-    - Writes output to timestamped log file in OS temp directory
-    - Shows success/error message with "Open Log" button
-    - Stores log path for "Open Log" toolbar button
-  - `bcOpenLog` — opens the last validation log file in editor
+- `bcValidationViewProvider.js` — validation UI webview between filter and tree views
+  - **Validation controls**:
+    - Scope selector: Bands only / Bands+CA / Bands+CA+DC
+    - Validation type checkboxes: Content validation, Schema validation
+    - Run Validation button (▶ icon)
+  - **Recent logs list**: Shows up to 5 most recent validation log files by date/time
+    - Clickable entries open log file in editor
+    - Refresh button (⟳) to update log list
+    - Auto-updates after each validation run
+  - All validation logic moved from bcCommands.js to the view provider
+  - Writes output to timestamped log files in OS temp directory
+  - Shows success/error notifications after validation
+- `bcCommands.js` — command handlers for refresh, open preview, normalize, configure folder, preview filtered, export git diff, and toggle preview
+  - `bcValidate` and `bcOpenLog` functions removed (functionality moved to bcValidationViewProvider)
   - `bcNormalize` — normalizes currently open CA/DC JSON file using jsvalidator
   - `bcPreviewFiltered` — generates multi-BC HTML preview for all currently filtered entries
     - Limited to first 100 entries for performance
@@ -163,16 +168,16 @@ Added `specpress.bandCombinationFolder` configuration parameter (set to `"."`) i
 The following has been added to `package.json`:
 
 - **Activity bar container** `specpress-bandcombinations` with `$(list-tree)` icon.
-- **Two views:**
+- **Three views:**
   - `specpressBcFilter` — webview for filter/selector UI
+  - `specpressBcValidation` — webview for validation controls and recent logs
   - `specpressBcTree` — tree view for sorted BC list
-- **Six toolbar commands** on `specpressBcTree`:
-  - `specpress.bcValidate` (play icon) — run validation
-  - `specpress.bcOpenLog` (output icon) — open validation log file
+- **Five toolbar commands** on `specpressBcTree`:
   - `specpress.bcRefresh` (refresh icon) — reload BC files
   - `specpress.bcNormalize` (symbol-namespace icon) — normalize current BC file
   - `specpress.bcPreviewFiltered` (eye icon) — preview filtered BCs in HTML table
   - `specpress.bcExportGitDiff` (diff icon) — export git diff between versions
+  - `specpress.bcTogglePreview` (eye icon / eye-closed icon) — toggle auto preview on tree selection
 - **Configuration:** `specpress.bandCombinationFolder` (string) — path to the 38.101 data repository root.
 
 ## jsvalidator integration (done)

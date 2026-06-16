@@ -66,6 +66,11 @@
           "type": "webview"
         },
         {
+          "id": "specpressBcValidation",
+          "name": "Validation",
+          "type": "webview"
+        },
+        {
           "id": "specpressBcTree",
           "name": "Band Combinations",
           "contextualTitle": "Band Combinations"
@@ -193,12 +198,17 @@
       {
         "command": "specpress.bcPreviewFiltered",
         "title": "Preview Filtered",
-        "icon": "$(eye)"
+        "icon": "$(list-flat)"
       },
       {
         "command": "specpress.bcExportGitDiff",
         "title": "Export Git Diff",
         "icon": "$(diff)"
+      },
+      {
+        "command": "specpress.bcTogglePreview",
+        "title": "Toggle Auto Preview",
+        "icon": "$(eye)"
       },
       {
         "command": "specpress.showDebugLog",
@@ -228,34 +238,35 @@
           "group": "navigation@4"
         },
         {
-          "command": "specpress.bcValidate",
+          "command": "specpress.bcRefresh",
           "when": "view == specpressBcTree",
           "group": "navigation@1"
         },
         {
-          "command": "specpress.bcOpenLog",
+          "command": "specpress.bcNormalize",
           "when": "view == specpressBcTree",
           "group": "navigation@2"
         },
         {
-          "command": "specpress.bcRefresh",
+          "command": "specpress.bcPreviewFiltered",
           "when": "view == specpressBcTree",
           "group": "navigation@3"
         },
         {
-          "command": "specpress.bcNormalize",
+          "command": "specpress.bcExportGitDiff",
           "when": "view == specpressBcTree",
           "group": "navigation@4"
         },
         {
-          "command": "specpress.bcPreviewFiltered",
-          "when": "view == specpressBcTree",
+          "command": "specpress.bcTogglePreview",
+          "when": "view == specpressBcTree && !specpress.bcAutoPreviewEnabled",
           "group": "navigation@5"
         },
         {
-          "command": "specpress.bcExportGitDiff",
-          "when": "view == specpressBcTree",
-          "group": "navigation@6"
+          "command": "specpress.bcTogglePreview",
+          "when": "view == specpressBcTree && specpress.bcAutoPreviewEnabled",
+          "group": "navigation@5",
+          "icon": "$(eye-closed)"
         }
       ],
       "view/item/context": [

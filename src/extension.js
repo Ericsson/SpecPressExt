@@ -25,8 +25,9 @@ const { extractSnippet } = require('./vscode/commenting/snippetExtractor')
 const { logger } = require('./vscode/logger')
 const { BcTreeProvider } = require('./vscode/bandcombinations/bcTreeProvider')
 const { BcFilterViewProvider } = require('./vscode/bandcombinations/bcFilterViewProvider')
+const { BcValidationViewProvider } = require('./vscode/bandcombinations/bcValidationViewProvider')
 const { BcPreviewManager } = require('./vscode/bandcombinations/bcPreviewManager')
-const { bcValidate, bcOpenLog, bcRefresh, openBcPreview, configureBcFolder, bcNormalize, bcPreviewFiltered, bcExportGitDiff } = require('./vscode/bandcombinations/bcCommands')
+const { bcRefresh, openBcPreview, configureBcFolder, bcNormalize, bcPreviewFiltered, bcExportGitDiff, bcTogglePreview } = require('./vscode/bandcombinations/bcCommands')
 
 const config = new ConfigLoader()
 const state = new StateManager()
@@ -55,6 +56,9 @@ let bcTreeProvider = null
 
 /** @type {BcFilterViewProvider|null} */
 let bcFilterViewProvider = null
+
+/** @type {BcValidationViewProvider|null} */
+let bcValidationViewProvider = null
 
 /** @type {BcPreviewManager|null} */
 let bcPreviewManager = null
@@ -235,6 +239,11 @@ function activate(context) {
   bcPreviewManager = new BcPreviewManager(state, config)
   bcTreeProvider = new BcTreeProvider(config, bcPreviewManager)
   bcFilterViewProvider = new BcFilterViewProvider(bcTreeProvider)
+  bcValidationViewProvider = new BcValidationViewProvider(config)
+
+  // Initialize auto preview state (default to enabled)
+  state.bcAutoPreviewEnabled = true
+  vscode.commands.executeCommand('setContext', 'specpress.bcAutoPreviewEnabled', true)
 
   // Register BC tree view
   const bcTreeView = vscode.window.createTreeView('specpressBcTree', {
@@ -252,22 +261,34 @@ function activate(context) {
     )
   )
 
+  // Register BC validation view
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      'specpressBcValidation',
+      bcValidationViewProvider,
+      {
+        webviewOptions: {
+          retainContextWhenHidden: true
+        }
+      }
+    )
+  )
+
   // Register BC commands
   context.subscriptions.push(
-    vscode.commands.registerCommand('specpress.bcValidate', () => bcValidate(config)),
-    vscode.commands.registerCommand('specpress.bcOpenLog', () => bcOpenLog(config)),
     vscode.commands.registerCommand('specpress.bcRefresh', () => bcRefresh(bcTreeProvider)),
     vscode.commands.registerCommand('specpress.configureBcFolder', () => configureBcFolder()),
     vscode.commands.registerCommand('specpress.bcNormalize', () => bcNormalize()),
     vscode.commands.registerCommand('specpress.bcPreviewFiltered', () => bcPreviewFiltered(bcTreeProvider, bcPreviewManager)),
     vscode.commands.registerCommand('specpress.bcExportGitDiff', () => bcExportGitDiff(config)),
+    vscode.commands.registerCommand('specpress.bcTogglePreview', () => bcTogglePreview(state)),
     vscode.commands.registerCommand('specpress.openBcPreview', (uri) => {
       const filePath = uri ? (uri.fsPath || uri) : null
       if (!filePath) {
         vscode.window.showErrorMessage('No file selected for BC preview')
         return
       }
-      openBcPreview(bcPreviewManager, filePath, bcTreeView)
+      openBcPreview(bcPreviewManager, filePath, bcTreeView, state)
     })
   )
 
