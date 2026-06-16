@@ -218,8 +218,10 @@ class BcTreeProvider {
   }
 
   extractCarrierCountHeuristic(bcId) {
-    // Fallback heuristic: count uppercase BWC letters
-    const matches = bcId.match(/[A-Z](?![a-z])/g)
+    // Fallback heuristic: count BWC letters (uppercase after band numbers)
+    // Remove prefix first, then count uppercase letters after numbers
+    const withoutPrefix = bcId.replace(/^(CA_|DC_)/, '')
+    const matches = withoutPrefix.match(/[A-Z](?![a-z])/g)
     return matches ? matches.length : 0
   }
 
@@ -460,10 +462,26 @@ class BcTreeProvider {
 
   async sortBcFiles(files) {
     try {
-      // Import BC_ID for proper sorting
       const { BC_ID } = await import('ran4-jsvalidator/src/BC_ID.js')
+      const { BandNumber } = await import('ran4-jsvalidator/src/BandNumber.js')
       
       return files.slice().sort((a, b) => {
+        // Bands come before CA/DC configurations
+        if (a.isBand && !b.isBand) return -1
+        if (!a.isBand && b.isBand) return 1
+        
+        // Both are bands: sort numerically by band number
+        if (a.isBand && b.isBand) {
+          try {
+            const bandA = new BandNumber(a.bcId)
+            const bandB = new BandNumber(b.bcId)
+            return bandA.asInt() - bandB.asInt()
+          } catch (e) {
+            return a.bcId.localeCompare(b.bcId)
+          }
+        }
+        
+        // Both are BC configurations: use BC_ID comparison
         try {
           const bcIdA = new BC_ID(a.bcId)
           const bcIdB = new BC_ID(b.bcId)

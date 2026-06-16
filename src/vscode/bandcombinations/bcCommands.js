@@ -75,15 +75,10 @@ async function bcNormalize() {
   }
   
   try {
-    // Load and normalize using jsvalidator
-    const { LoadJsonFileToDict, RAN4JsonEncoder } = await import('ran4-jsvalidator/src/JsonTools.js')
-    const { BC } = await import('ran4-jsvalidator/src/BandCombinations.js')
+    // Load and normalize using jsvalidator library function
+    const { normalizeBC } = await import('ran4-jsvalidator/src/NormalizeBC.js')
     
-    const dict = LoadJsonFileToDict(filePath)
-    const bc = new BC(dict)
-    const enc = new RAN4JsonEncoder(filePath)
-    bc.toJSON(enc, 0)
-    enc.flush()
+    const absPath = normalizeBC(filePath)
     
     // Reload the file in the editor to show normalized content
     const document = await vscode.workspace.openTextDocument(filePath)

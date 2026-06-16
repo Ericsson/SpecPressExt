@@ -275,7 +275,15 @@ All tests run with Node.js and do not require VS-Code. After `npm install`, run 
 npm test
 ```
 
-The extension-specific tests are in `test/vscode/` and cover the ConfigLoader, StateManager, and JsonTable editor logic.
+The full test suite includes a DOCX DIFF end-to-end test that requires Microsoft Word. If Word is not installed, this test is automatically skipped with a message.
+
+For faster testing during development, use the quick mode which skips slow tests:
+
+```bash
+npm run test:quick
+```
+
+The extension-specific tests are in `test/vscode/` and cover the ConfigLoader, StateManager, JsonTable editor logic, and Band Combinations functionality.
 
 The bulk of the conversion tests (markdown-to-HTML, markdown-to-DOCX, section numbering, ASN.1, etc.) live in the [specpress](https://github.com/Ericsson/specpress) library.
 

@@ -33,6 +33,42 @@ fs.mkdirSync(testDir, { recursive: true })
 
 // Main test function
 async function runE2ETest() {
+  // Check if MS Word is installed before running test
+  console.log('Checking for MS Word installation...')
+  const checkWordVbs = `
+    On Error Resume Next
+    Set wordApp = CreateObject("Word.Application")
+    If Err.Number <> 0 Then
+      WScript.Echo "MS Word not found"
+      WScript.Quit 1
+    End If
+    wordApp.Quit 0
+    WScript.Echo "MS Word found"
+  `
+  
+  const checkPath = path.join(testDir, 'check-word.vbs')
+  fs.writeFileSync(checkPath, checkWordVbs)
+  
+  const checkResult = spawnSync('cscript', ['//nologo', checkPath], {
+    encoding: 'utf8',
+    timeout: 5000,
+    windowsHide: true
+  })
+  
+  fs.unlinkSync(checkPath)
+  
+  if (checkResult.status !== 0 || !checkResult.stdout.includes('MS Word found')) {
+    console.log('\n⊘ Skipping test: MS Word is not installed')
+    console.log('  This test requires Microsoft Word to run')
+    console.log('  Use "npm run test:quick" to skip this test\n')
+    
+    // Cleanup
+    fs.rmSync(testDir, { recursive: true, force: true })
+    process.exit(0) // Exit successfully (test skipped, not failed)
+  }
+  
+  console.log('  ✓ MS Word is installed\n')
+  
   try {
   // Step 1: Generate DOCX files from markdown
   console.log('Step 1: Generating DOCX files from markdown sources...')
