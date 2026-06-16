@@ -23,11 +23,7 @@ const { validateCommentPositions } = require('./vscode/commenting/validateCommen
 const { selectCommentInTree, showCommentInSidebar } = require('./vscode/commenting/commentHelpers')
 const { extractSnippet } = require('./vscode/commenting/snippetExtractor')
 const { logger } = require('./vscode/logger')
-const { BcTreeProvider } = require('./vscode/bandcombinations/bcTreeProvider')
-const { BcFilterViewProvider } = require('./vscode/bandcombinations/bcFilterViewProvider')
-const { BcValidationViewProvider } = require('./vscode/bandcombinations/bcValidationViewProvider')
-const { BcPreviewManager } = require('./vscode/bandcombinations/bcPreviewManager')
-const { bcRefresh, openBcPreview, configureBcFolder, bcNormalize, bcPreviewFiltered, bcExportGitDiff, bcTogglePreview } = require('./vscode/bandcombinations/bcCommands')
+const { initializeBandCombinationPane } = require('./vscode/bandcombinations/bcInitializer')
 
 const config = new ConfigLoader()
 const state = new StateManager()
@@ -50,18 +46,6 @@ let commentDetailViewProvider = null
 
 /** @type {CommentFilterViewProvider|null} */
 let commentFilterViewProvider = null
-
-/** @type {BcTreeProvider|null} */
-let bcTreeProvider = null
-
-/** @type {BcFilterViewProvider|null} */
-let bcFilterViewProvider = null
-
-/** @type {BcValidationViewProvider|null} */
-let bcValidationViewProvider = null
-
-/** @type {BcPreviewManager|null} */
-let bcPreviewManager = null
 
 /**
  * Activates the extension. Registers all commands and listeners.
@@ -235,64 +219,8 @@ function activate(context) {
     )
   )
 
-  // Initialize Band Combination pane (always visible, shows config hint if not configured)
-  bcPreviewManager = new BcPreviewManager(state, config)
-  bcTreeProvider = new BcTreeProvider(config, bcPreviewManager)
-  bcFilterViewProvider = new BcFilterViewProvider(bcTreeProvider)
-  bcValidationViewProvider = new BcValidationViewProvider(config)
-
-  // Initialize auto preview state (default to enabled)
-  state.bcAutoPreviewEnabled = true
-  vscode.commands.executeCommand('setContext', 'specpress.bcAutoPreviewEnabled', true)
-
-  // Register BC tree view
-  const bcTreeView = vscode.window.createTreeView('specpressBcTree', {
-    treeDataProvider: bcTreeProvider,
-    showCollapseAll: false
-  })
-  bcTreeProvider.treeView = bcTreeView
-  context.subscriptions.push(bcTreeView)
-
-  // Register BC filter view
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(
-      'specpressBcFilter',
-      bcFilterViewProvider
-    )
-  )
-
-  // Register BC validation view
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(
-      'specpressBcValidation',
-      bcValidationViewProvider,
-      {
-        webviewOptions: {
-          retainContextWhenHidden: true
-        }
-      }
-    )
-  )
-
-  // Register BC commands
-  context.subscriptions.push(
-    vscode.commands.registerCommand('specpress.bcRefresh', () => bcRefresh(bcTreeProvider)),
-    vscode.commands.registerCommand('specpress.configureBcFolder', () => configureBcFolder()),
-    vscode.commands.registerCommand('specpress.bcNormalize', () => bcNormalize()),
-    vscode.commands.registerCommand('specpress.bcPreviewFiltered', () => bcPreviewFiltered(bcTreeProvider, bcPreviewManager)),
-    vscode.commands.registerCommand('specpress.bcExportGitDiff', () => bcExportGitDiff(config)),
-    vscode.commands.registerCommand('specpress.bcTogglePreview', () => bcTogglePreview(state)),
-    vscode.commands.registerCommand('specpress.openBcPreview', (uri) => {
-      const filePath = uri ? (uri.fsPath || uri) : null
-      if (!filePath) {
-        vscode.window.showErrorMessage('No file selected for BC preview')
-        return
-      }
-      openBcPreview(bcPreviewManager, filePath, bcTreeView, state)
-    })
-  )
-
-  context.subscriptions.push(bcPreviewManager)
+  // Initialize Band Combination pane
+  initializeBandCombinationPane(context, state, config)
 
   context.subscriptions.push(
     vscode.commands.registerCommand('specpress.preview', () => {
@@ -812,8 +740,8 @@ function activate(context) {
         }
         
         // Refresh BC tree if bandCombinationFolder changed
-        if (e.affectsConfiguration('specpress.bandCombinationFolder') && bcTreeProvider) {
-          bcTreeProvider.refresh()
+        if (e.affectsConfiguration('specpress.bandCombinationFolder')) {
+          // BC tree will refresh automatically via its own config change listener
         }
       }
     })

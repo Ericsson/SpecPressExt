@@ -31,7 +31,14 @@ class BcTreeProvider {
     this.loadCA = true
     this.loadDC = false
     this.loadBands = true
-    this.treeView = null // Will be set from extension.js
+    this.treeView = null // Will be set from bcInitializer.js
+    
+    // Listen for config changes to refresh tree
+    this.configChangeListener = vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration('specpress.bandCombinationFolder')) {
+        this.refresh()
+      }
+    })
   }
 
   refresh() {
@@ -472,6 +479,12 @@ class BcTreeProvider {
     } catch (e) {
       // If jsvalidator import fails, fallback to simple string sort
       return files.slice().sort((a, b) => a.bcId.localeCompare(b.bcId))
+    }
+  }
+  
+  dispose() {
+    if (this.configChangeListener) {
+      this.configChangeListener.dispose()
     }
   }
 }
