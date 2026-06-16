@@ -117,301 +117,118 @@ class BcPreviewManager {
 
   async renderMultiBcAsHtml(bcFiles) {
     try {
-      // Separate bands, CA, and DC files
-      const bandFiles = bcFiles.filter(f => f.isBand)
-      const caFiles = bcFiles.filter(f => f.isCA)
-      const dcFiles = bcFiles.filter(f => f.isDC)
+      const groups = [
+        { files: bcFiles.filter(f => f.isBand), title: 'Frequency Bands', sortKey: 'BandNumber' },
+        { files: bcFiles.filter(f => f.isCA), title: 'Carrier Aggregation', sortKey: 'BC_ID' },
+        { files: bcFiles.filter(f => f.isDC), title: 'Dual Connectivity', sortKey: 'BC_ID' }
+      ]
       
       let html = ''
       
-      // Render bands if any
-      if (bandFiles.length > 0) {
-        const { ChBwOneBand } = await import('ran4-jsvalidator/src/ChannelBandwidthPerBand.js')
-        const { HtmlTable } = await import('ran4-jsvalidator/src/HtmlTable.js')
-        const { BandNumber } = await import('ran4-jsvalidator/src/BandNumber.js')
+      for (const group of groups) {
+        if (group.files.length === 0) continue
         
-        // Sort band files numerically
-        const sortedBandFiles = bandFiles.slice().sort((a, b) => {
+        const sorted = await this.sortBcFilesByType(group.files, group.sortKey)
+        const sections = []
+        
+        for (const file of sorted) {
           try {
-            const bandA = new BandNumber(a.bcId)
-            const bandB = new BandNumber(b.bcId)
-            return bandA.asInt() - bandB.asInt()
-          } catch (e) {
-            return a.bcId.localeCompare(b.bcId)
-          }
-        })
-        
-        const bandHtmlTable = new HtmlTable()
-        bandHtmlTable.setValue(0, 0, 'Band')
-        bandHtmlTable.setValue(0, 1, 'SCS [kHz]')
-        bandHtmlTable.setValue(0, 2, 'Bandwidths [MHz]')
-        
-        for (const bandFile of sortedBandFiles) {
-          try {
-            const content = fs.readFileSync(bandFile.path, 'utf8')
-            const data = JSON.parse(content)
-            const band = new ChBwOneBand(data)
-            band.toHTML(bandHtmlTable)
-          } catch (e) {
-            // Skip invalid band files
-          }
+            const data = JSON.parse(fs.readFileSync(file.path, 'utf8'))
+            const tableHtml = await this.renderSingleBcTable(data)
+            sections.push(tableHtml)
+          } catch (e) {}
         }
         
-        const bandTableHtml = this.htmlTableToString(bandHtmlTable)
-        html += `<h2>Frequency Bands (${bandFiles.length})</h2>\n${bandTableHtml}\n`
-      }
-      
-      // Render CA files if any
-      if (caFiles.length > 0) {
-        const { BC, BandCombinationList } = await import('ran4-jsvalidator/src/BandCombinations.js')
-        const { HtmlTable } = await import('ran4-jsvalidator/src/HtmlTable.js')
-        const { BC_ID } = await import('ran4-jsvalidator/src/BC_ID.js')
-        
-        // Load note descriptions from first CA file
-        const firstCa = caFiles[0]
-        const firstContent = fs.readFileSync(firstCa.path, 'utf8')
-        const firstData = JSON.parse(firstContent)
-        const { ulNoteDescriptions, dlNoteDescriptions } = await this.loadNoteDescriptions(firstData)
-        
-        // Sort CA files using BC_ID comparison
-        const sortedCaFiles = caFiles.slice().sort((a, b) => {
-          try {
-            const bcIdA = new BC_ID(a.bcId)
-            const bcIdB = new BC_ID(b.bcId)
-            
-            if (bcIdA.lessThan(bcIdB)) return -1
-            if (bcIdA.greaterThan(bcIdB)) return 1
-            return 0
-          } catch (e) {
-            return a.bcId.localeCompare(b.bcId)
-          }
-        })
-        
-        const caHtmlTable = new HtmlTable()
-        BandCombinationList.addTableHeaders(caHtmlTable)
-        
-        for (const caFile of sortedCaFiles) {
-          try {
-            const content = fs.readFileSync(caFile.path, 'utf8')
-            const data = JSON.parse(content)
-            const bc = new BC(data)
-            bc.toHTML(caHtmlTable, 0, 0, ulNoteDescriptions, dlNoteDescriptions)
-          } catch (e) {
-            // Skip invalid CA files
-          }
+        if (sections.length > 0) {
+          html += `<h2>${group.title} (${group.files.length})</h2>\n${this.mergeTables(sections)}\n`
         }
-        
-        const caTableHtml = this.htmlTableToString(caHtmlTable)
-        html += `<h2>Carrier Aggregation (${caFiles.length})</h2>\n${caTableHtml}\n`
       }
       
-      // Render DC files if any
-      if (dcFiles.length > 0) {
-        const { DualConnectivityConfig } = await import('ran4-jsvalidator/src/DualConnectivity.js')
-        const { HtmlTable } = await import('ran4-jsvalidator/src/HtmlTable.js')
-        const { BC_ID } = await import('ran4-jsvalidator/src/BC_ID.js')
-        
-        // Sort DC files using BC_ID comparison
-        const sortedDcFiles = dcFiles.slice().sort((a, b) => {
-          try {
-            const bcIdA = new BC_ID(a.bcId)
-            const bcIdB = new BC_ID(b.bcId)
-            
-            if (bcIdA.lessThan(bcIdB)) return -1
-            if (bcIdA.greaterThan(bcIdB)) return 1
-            return 0
-          } catch (e) {
-            return a.bcId.localeCompare(b.bcId)
-          }
-        })
-        
-        const dcHtmlTable = new HtmlTable()
-        dcHtmlTable.setValue(0, 0, 'DL Configuration')
-        dcHtmlTable.setValue(0, 1, 'UL Configurations')
-        dcHtmlTable.setValue(0, 2, 'Single UL')
-        dcHtmlTable.setValue(0, 3, 'DL Interruptions')
-        dcHtmlTable.setValue(0, 4, 'Notes')
-        
-        let row = 1
-        for (const dcFile of sortedDcFiles) {
-          try {
-            const content = fs.readFileSync(dcFile.path, 'utf8')
-            const data = JSON.parse(content)
-            const dc = new DualConnectivityConfig(data, null, false, false)
-            
-            dcHtmlTable.setValue(row, 0, String(dc.bcId))
-            const ulConfigs = dc.ulConfigList.map(ul => String(ul.bcId)).join('<br>')
-            dcHtmlTable.setValue(row, 1, ulConfigs || '–')
-            dcHtmlTable.setValue(row, 2, dc.singleUlAllowed || '–')
-            dcHtmlTable.setValue(row, 3, dc.dlInterruptionsAllowed || '–')
-            const noteKeys = Object.keys(dc.notes)
-            const notesStr = noteKeys.length > 0 ? noteKeys.join(', ') : '–'
-            dcHtmlTable.setValue(row, 4, notesStr)
-            row++
-          } catch (e) {
-            // Skip invalid DC files
-          }
-        }
-        
-        const dcTableHtml = this.htmlTableToString(dcHtmlTable)
-        html += `<h2>Dual Connectivity (${dcFiles.length})</h2>\n${dcTableHtml}\n`
-      }
-      
-      const title = `Preview (${bcFiles.length} entries)`
-      return this.wrapInSimpleHtml(title, html)
+      return this.wrapInSimpleHtml(`Preview (${bcFiles.length} entries)`, html)
     } catch (e) {
       return this.buildErrorHtml(e.message)
     }
   }
 
-  async renderDcAsHtml(data, filename, includeHeader = true) {
-    try {
-      const { DualConnectivityConfig } = await import('ran4-jsvalidator/src/DualConnectivity.js')
-      const { HtmlTable } = await import('ran4-jsvalidator/src/HtmlTable.js')
-      
-      const dc = new DualConnectivityConfig(data, null, false, false)
-      const htmlTable = new HtmlTable()
-      
-      // Add header row
-      htmlTable.setValue(0, 0, 'DL Configuration')
-      htmlTable.setValue(0, 1, 'UL Configurations')
-      htmlTable.setValue(0, 2, 'Single UL')
-      htmlTable.setValue(0, 3, 'DL Interruptions')
-      htmlTable.setValue(0, 4, 'Notes')
-      
-      // Add DL configuration
-      const row = 1
-      htmlTable.setValue(row, 0, String(dc.bcId))
-      
-      // Add UL configurations
-      const ulConfigs = dc.ulConfigList.map(ul => String(ul.bcId)).join('<br>')
-      htmlTable.setValue(row, 1, ulConfigs || '–')
-      
-      // Add single UL allowed
-      htmlTable.setValue(row, 2, dc.singleUlAllowed || '–')
-      
-      // Add DL interruptions allowed
-      htmlTable.setValue(row, 3, dc.dlInterruptionsAllowed || '–')
-      
-      // Add notes
-      const noteKeys = Object.keys(dc.notes)
-      const notesStr = noteKeys.length > 0 ? noteKeys.join(', ') : '–'
-      htmlTable.setValue(row, 4, notesStr)
-      
-      const tableHtml = this.htmlTableToString(htmlTable)
-      
-      if (includeHeader) {
-        return this.wrapInHtml(data.bcId || 'Unknown', filename, null, tableHtml)
-      } else {
-        return this.wrapInSimpleHtml(data.bcId || 'Unknown', tableHtml)
+  async sortBcFilesByType(files, sortKey) {
+    if (sortKey === 'BandNumber') {
+      const { BandNumber } = await import('ran4-jsvalidator/src/BandNumber.js')
+      return files.slice().sort((a, b) => {
+        try {
+          return new BandNumber(a.bcId).asInt() - new BandNumber(b.bcId).asInt()
+        } catch (e) {
+          return a.bcId.localeCompare(b.bcId)
+        }
+      })
+    }
+    
+    const { BC_ID } = await import('ran4-jsvalidator/src/BC_ID.js')
+    return files.slice().sort((a, b) => {
+      try {
+        const idA = new BC_ID(a.bcId)
+        const idB = new BC_ID(b.bcId)
+        if (idA.lessThan(idB)) return -1
+        if (idA.greaterThan(idB)) return 1
+        return 0
+      } catch (e) {
+        return a.bcId.localeCompare(b.bcId)
       }
-    } catch (e) {
-      return this.buildFallbackHtml(data, filename, e.message)
+    })
+  }
+
+  async renderSingleBcTable(data) {
+    if (data.bandNumber) {
+      const { ChannelBandwidthList } = await import('ran4-jsvalidator/src/ChannelBandwidthPerBand.js')
+      return ChannelBandwidthList.renderAsHtml(data)
+    } else if (data.ulConfigList) {
+      const { DcBandCombinationList } = await import('ran4-jsvalidator/src/DualConnectivity.js')
+      return DcBandCombinationList.renderAsHtml(data)
+    } else {
+      const { ulNoteDescriptions, dlNoteDescriptions } = await this.loadNoteDescriptions(data)
+      const { BandCombinationList } = await import('ran4-jsvalidator/src/BandCombinations.js')
+      return BandCombinationList.renderAsHtml(data, ulNoteDescriptions, dlNoteDescriptions)
     }
   }
 
-  async renderBandAsHtml(data, filename, includeHeader = true) {
-    try {
-      const { ChBwOneBand, ChannelBandwidthList } = await import('ran4-jsvalidator/src/ChannelBandwidthPerBand.js')
-      const { HtmlTable } = await import('ran4-jsvalidator/src/HtmlTable.js')
-      
-      const band = new ChBwOneBand(data)
-      const htmlTable = new HtmlTable()
-      
-      // Add header row
-      htmlTable.setValue(0, 0, 'Band')
-      htmlTable.setValue(0, 1, 'SCS [kHz]')
-      htmlTable.setValue(0, 2, 'Bandwidths [MHz]')
-      
-      band.toHTML(htmlTable)
-      
-      const tableHtml = this.htmlTableToString(htmlTable)
-      
-      if (includeHeader) {
-        return this.wrapInHtml(data.bandNumber || 'Unknown', filename, null, tableHtml)
-      } else {
-        return this.wrapInSimpleHtml(data.bandNumber || 'Unknown', tableHtml)
-      }
-    } catch (e) {
-      return this.buildFallbackHtml(data, filename, e.message)
-    }
+  mergeTables(tableHtmlArray) {
+    if (tableHtmlArray.length === 0) return ''
+    
+    // Extract header from first table
+    const firstTable = tableHtmlArray[0]
+    const headerMatch = firstTable.match(/<tr>\s*<th>.*?<\/tr>/s)
+    const header = headerMatch ? headerMatch[0] : ''
+    
+    // Extract all data rows (skip headers)
+    const allRows = tableHtmlArray.map(html => {
+      return html.replace(/<table>/, '').replace(/<\/table>/, '').replace(/<tr>\s*<th>.*?<\/tr>/s, '')
+    }).join('')
+    
+    return `<table>\n${header}${allRows}</table>\n`
   }
 
   async renderBcAsHtml(data, filename, includeHeader = true) {
     try {
-      // Check if this is a band file (has bandNumber), DC file (has ulConfigList), or CA file (has bcsList)
+      let tableHtml
       if (data.bandNumber) {
-        return await this.renderBandAsHtml(data, filename, includeHeader)
+        const { ChannelBandwidthList } = await import('ran4-jsvalidator/src/ChannelBandwidthPerBand.js')
+        tableHtml = ChannelBandwidthList.renderAsHtml(data)
+      } else if (data.ulConfigList) {
+        const { DcBandCombinationList } = await import('ran4-jsvalidator/src/DualConnectivity.js')
+        tableHtml = DcBandCombinationList.renderAsHtml(data)
+      } else {
+        const { ulNoteDescriptions, dlNoteDescriptions } = await this.loadNoteDescriptions(data)
+        const { BandCombinationList } = await import('ran4-jsvalidator/src/BandCombinations.js')
+        tableHtml = BandCombinationList.renderAsHtml(data, ulNoteDescriptions, dlNoteDescriptions)
       }
-      
-      if (data.ulConfigList) {
-        return await this.renderDcAsHtml(data, filename, includeHeader)
-      }
-      
-      // Dynamically import jsvalidator ESM modules for CA
-      const { BC, BandCombinationList } = await import('ran4-jsvalidator/src/BandCombinations.js')
-      const { HtmlTable } = await import('ran4-jsvalidator/src/HtmlTable.js')
-      
-      // Load note descriptions from schema
-      const { ulNoteDescriptions, dlNoteDescriptions } = await this.loadNoteDescriptions(data)
-      
-      // Create BC instance and render to HtmlTable
-      const bc = new BC(data)
-      const htmlTable = new HtmlTable()
-      
-      // Add header row using jsvalidator's standard headers
-      BandCombinationList.addTableHeaders(htmlTable)
-      
-      bc.toHTML(htmlTable, 0, 0, ulNoteDescriptions, dlNoteDescriptions)
-      
-      // Generate HTML from HtmlTable
-      const tableHtml = this.htmlTableToString(htmlTable)
       
       if (includeHeader) {
-        return this.wrapInHtml(data.bcId || 'Unknown', filename, data.bcsId, tableHtml)
+        return this.wrapInHtml(data.bcId || data.bandNumber || 'Unknown', filename, data.bcsId, tableHtml)
       } else {
-        return this.wrapInSimpleHtml(data.bcId || 'Unknown', tableHtml)
+        return this.wrapInSimpleHtml(data.bcId || data.bandNumber || 'Unknown', tableHtml)
       }
     } catch (e) {
-      // Fallback to simple rendering if jsvalidator fails
       return this.buildFallbackHtml(data, filename, e.message)
     }
-  }
-
-  htmlTableToString(htmlTable) {
-    const indent = '  '
-    const lines = []
-    
-    lines.push('<table>')
-    for (let rowIndex = 0; rowIndex < htmlTable.getNrofRows(); rowIndex++) {
-      lines.push(`${indent}<tr>`)
-      for (let colIndex = 0; colIndex < htmlTable.getNrofColumns(); colIndex++) {
-        const value = htmlTable.getValue(rowIndex, colIndex)
-        if (value !== null) {
-          if (rowIndex === 0) {
-            // Header row
-            lines.push(`${indent}${indent}<th>${this.escapeHtml(value)}</th>`)
-          } else if (value !== '' || rowIndex === 1) {
-            // Check for rowspan
-            let rowspan = 1
-            let row = rowIndex + 1
-            while (row < htmlTable.getNrofRows() && htmlTable.getValue(row, colIndex) === '') {
-              rowspan++
-              row++
-            }
-            const rowspanAttr = rowspan > 1 ? ` rowspan="${rowspan}"` : ''
-            
-            // Don't escape HTML tags (like <br>) - render them directly
-            const cellContent = value === '&nbsp;' ? '' : value
-            lines.push(`${indent}${indent}<td${rowspanAttr}>${cellContent}</td>`)
-          }
-        }
-      }
-      lines.push(`${indent}</tr>`)
-    }
-    lines.push('</table>')
-    
-    return lines.join('\n')
   }
 
   wrapInSimpleHtml(title, tableHtml) {
