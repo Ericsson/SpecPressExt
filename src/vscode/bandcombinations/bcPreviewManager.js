@@ -40,7 +40,7 @@ class BcPreviewManager {
         this.currentFilePath = null
         this.disposeListeners()
       })
-      
+
       // Handle messages from webview
       this.panel.webview.onDidReceiveMessage(async message => {
         if (message.command === 'openRef') {
@@ -92,10 +92,10 @@ class BcPreviewManager {
     try {
       const content = fs.readFileSync(filePath, 'utf8')
       const data = JSON.parse(content)
-      
+
       this.panel.title = `BC Preview: ${data.bcId || data.bandNumber || path.basename(filePath)}`
-      
-      // Use jsvalidator to render HTML (without header)
+
+      // Use 38.101 validator to render HTML (without header)
       const html = await this.renderBcAsHtml(data, path.basename(filePath), false)
       this.panel.webview.html = html
     } catch (e) {
@@ -122,15 +122,15 @@ class BcPreviewManager {
         { files: bcFiles.filter(f => f.isCA), title: 'Carrier Aggregation', sortKey: 'BC_ID' },
         { files: bcFiles.filter(f => f.isDC), title: 'Dual Connectivity', sortKey: 'BC_ID' }
       ]
-      
+
       let html = ''
-      
+
       for (const group of groups) {
         if (group.files.length === 0) continue
-        
+
         const sorted = await this.sortBcFilesByType(group.files, group.sortKey)
         const sections = []
-        
+
         for (const file of sorted) {
           try {
             const data = JSON.parse(fs.readFileSync(file.path, 'utf8'))
@@ -138,12 +138,12 @@ class BcPreviewManager {
             sections.push(tableHtml)
           } catch (e) {}
         }
-        
+
         if (sections.length > 0) {
           html += `<h2>${group.title} (${group.files.length})</h2>\n${this.mergeTables(sections)}\n`
         }
       }
-      
+
       return this.wrapInSimpleHtml(`Preview (${bcFiles.length} entries)`, html)
     } catch (e) {
       return this.buildErrorHtml(e.message)
@@ -152,7 +152,7 @@ class BcPreviewManager {
 
   async sortBcFilesByType(files, sortKey) {
     if (sortKey === 'BandNumber') {
-      const { BandNumber } = await import('ran4-jsvalidator/src/BandNumber.js')
+      const { BandNumber } = await import('specpress/lib/ran4/BandNumber.js')
       return files.slice().sort((a, b) => {
         try {
           return new BandNumber(a.bcId).asInt() - new BandNumber(b.bcId).asInt()
@@ -161,8 +161,8 @@ class BcPreviewManager {
         }
       })
     }
-    
-    const { BC_ID } = await import('ran4-jsvalidator/src/BC_ID.js')
+
+    const { BC_ID } = await import('specpress/lib/ran4/BC_ID.js')
     return files.slice().sort((a, b) => {
       try {
         const idA = new BC_ID(a.bcId)
@@ -178,31 +178,31 @@ class BcPreviewManager {
 
   async renderSingleBcTable(data) {
     if (data.bandNumber) {
-      const { ChannelBandwidthList } = await import('ran4-jsvalidator/src/ChannelBandwidthPerBand.js')
+      const { ChannelBandwidthList } = await import('specpress/lib/ran4/ChannelBandwidthPerBand.js')
       return ChannelBandwidthList.renderAsHtml(data)
     } else if (data.ulConfigList) {
-      const { DcBandCombinationList } = await import('ran4-jsvalidator/src/DualConnectivity.js')
+      const { DcBandCombinationList } = await import('specpress/lib/ran4/DualConnectivity.js')
       return DcBandCombinationList.renderAsHtml(data)
     } else {
       const { ulNoteDescriptions, dlNoteDescriptions } = await this.loadNoteDescriptions(data)
-      const { BandCombinationList } = await import('ran4-jsvalidator/src/BandCombinations.js')
+      const { BandCombinationList } = await import('specpress/lib/ran4/BandCombinations.js')
       return BandCombinationList.renderAsHtml(data, ulNoteDescriptions, dlNoteDescriptions)
     }
   }
 
   mergeTables(tableHtmlArray) {
     if (tableHtmlArray.length === 0) return ''
-    
+
     // Extract header from first table
     const firstTable = tableHtmlArray[0]
     const headerMatch = firstTable.match(/<tr>\s*<th>.*?<\/tr>/s)
     const header = headerMatch ? headerMatch[0] : ''
-    
+
     // Extract all data rows (skip headers)
     const allRows = tableHtmlArray.map(html => {
       return html.replace(/<table>/, '').replace(/<\/table>/, '').replace(/<tr>\s*<th>.*?<\/tr>/s, '')
     }).join('')
-    
+
     return `<table>\n${header}${allRows}</table>\n`
   }
 
@@ -210,17 +210,17 @@ class BcPreviewManager {
     try {
       let tableHtml
       if (data.bandNumber) {
-        const { ChannelBandwidthList } = await import('ran4-jsvalidator/src/ChannelBandwidthPerBand.js')
+        const { ChannelBandwidthList } = await import('specpress/lib/ran4/ChannelBandwidthPerBand.js')
         tableHtml = ChannelBandwidthList.renderAsHtml(data)
       } else if (data.ulConfigList) {
-        const { DcBandCombinationList } = await import('ran4-jsvalidator/src/DualConnectivity.js')
+        const { DcBandCombinationList } = await import('specpress/lib/ran4/DualConnectivity.js')
         tableHtml = DcBandCombinationList.renderAsHtml(data)
       } else {
         const { ulNoteDescriptions, dlNoteDescriptions } = await this.loadNoteDescriptions(data)
-        const { BandCombinationList } = await import('ran4-jsvalidator/src/BandCombinations.js')
+        const { BandCombinationList } = await import('specpress/lib/ran4/BandCombinations.js')
         tableHtml = BandCombinationList.renderAsHtml(data, ulNoteDescriptions, dlNoteDescriptions)
       }
-      
+
       if (includeHeader) {
         return this.wrapInHtml(data.bcId || data.bandNumber || 'Unknown', filename, data.bcsId, tableHtml)
       } else {
@@ -343,7 +343,7 @@ class BcPreviewManager {
 </head>
 <body>
   <h1>Band Combination: ${this.escapeHtml(bcId)}</h1>
-  
+
   <div class="info">
     <div><span class="label">File:</span> ${this.escapeHtml(filename)}</div>
     ${bcsId ? `<div><span class="label">BCS ID:</span> ${this.escapeHtml(bcsId)}</div>` : ''}
@@ -388,7 +388,7 @@ class BcPreviewManager {
 </head>
 <body>
   <h1>Band Combination: ${this.escapeHtml(data.bcId || 'Unknown')}</h1>
-  
+
   <div class="error">
     <strong>HTML rendering failed:</strong> ${this.escapeHtml(errorMsg)}
   </div>
@@ -456,16 +456,16 @@ class BcPreviewManager {
   async openReferencedFile(ref, bcs) {
     // ref is either a band number (e.g., "n3") or BC-ID (e.g., "CA_n3B")
     // bcs is the BCS-ID if applicable (or null)
-    
+
     const bcFolder = this.config.raw.get('bandCombinationFolder', '')
     if (!bcFolder) return
-    
-    const absFolder = path.isAbsolute(bcFolder) 
-      ? bcFolder 
+
+    const absFolder = path.isAbsolute(bcFolder)
+      ? bcFolder
       : this.config.wsRoot ? path.join(this.config.wsRoot, bcFolder) : bcFolder
-    
+
     if (!fs.existsSync(absFolder)) return
-    
+
     // Determine filename
     let filename
     if (ref.startsWith('n') && !ref.includes('_')) {
@@ -475,10 +475,10 @@ class BcPreviewManager {
       // BC-ID: CA_n3B.json or DC_n3B-n78C.json
       filename = `${ref}.json`
     }
-    
+
     // Search for the file recursively
     const filePath = this.findFileRecursive(absFolder, filename)
-    
+
     if (filePath) {
       // Open via the command to get both editor and preview
       await vscode.commands.executeCommand('specpress.openBcPreview', filePath)
@@ -486,37 +486,37 @@ class BcPreviewManager {
       vscode.window.showWarningMessage(`Referenced file not found: ${filename}`)
     }
   }
-  
+
   async loadNoteDescriptions(bcData) {
     const ulNoteDescriptions = {}
     const dlNoteDescriptions = {}
-    
+
     try {
       const bcFolder = this.config.raw.get('bandCombinationFolder', '')
       if (!bcFolder) return { ulNoteDescriptions, dlNoteDescriptions }
-      
-      const absFolder = path.isAbsolute(bcFolder) 
-        ? bcFolder 
+
+      const absFolder = path.isAbsolute(bcFolder)
+        ? bcFolder
         : this.config.wsRoot ? path.join(this.config.wsRoot, bcFolder) : bcFolder
-      
+
       // Determine schema file based on BC type (CA vs DC)
       const isDC = bcData.bcId && bcData.bcId.startsWith('DC_')
-      const schemaFileName = isDC 
+      const schemaFileName = isDC
         ? 'BandCombinationsDualConnectivity.json'
         : 'BandCombinationsCarrierAggregation.json'
-      
+
       // Schema files are typically in common/jsonSchemas folder relative to BC folder
       const schemaPath = path.join(absFolder, 'common', 'jsonSchemas', schemaFileName)
-      
+
       if (fs.existsSync(schemaPath)) {
         const schemaContent = fs.readFileSync(schemaPath, 'utf8')
         const schema = JSON.parse(schemaContent)
-        
+
         // Extract UL note descriptions
         const ulConfigSchema = isDC
           ? schema.properties?.ulConfigList?.items?.properties?.notes?.properties
           : schema.properties?.bcsList?.items?.properties?.ulConfigList?.items?.properties?.notes?.properties
-        
+
         if (ulConfigSchema) {
           for (const [key, value] of Object.entries(ulConfigSchema)) {
             if (value.description) {
@@ -524,7 +524,7 @@ class BcPreviewManager {
             }
           }
         }
-        
+
         // Extract DL (BC-level) note descriptions
         const dlNotesSchema = schema.properties?.notes?.properties
         if (dlNotesSchema) {
@@ -538,21 +538,21 @@ class BcPreviewManager {
     } catch (e) {
       // Silently fall back to empty descriptions
     }
-    
+
     return { ulNoteDescriptions, dlNoteDescriptions }
   }
 
   findFileRecursive(dir, filename) {
     try {
       const entries = fs.readdirSync(dir, { withFileTypes: true })
-      
+
       for (const entry of entries) {
         const fullPath = path.join(dir, entry.name)
-        
+
         if (entry.isFile() && entry.name === filename) {
           return fullPath
         }
-        
+
         if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== '.git') {
           const found = this.findFileRecursive(fullPath, filename)
           if (found) return found
@@ -561,7 +561,7 @@ class BcPreviewManager {
     } catch (e) {
       // Skip inaccessible directories
     }
-    
+
     return null
   }
 

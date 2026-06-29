@@ -67,7 +67,7 @@ Should test:
 - [ ] JSON editor opening in left pane
 - [ ] HTML webview creation in right pane
 - [ ] Live update debouncing (500ms)
-- [ ] jsvalidator BC.toHTML() integration
+- [ ] validator BC.toHTML() integration
 - [ ] Note description loading from schema
 - [ ] Reference link click handling
 - [ ] Webview disposal and cleanup
@@ -81,7 +81,7 @@ Should test:
 - [ ] `bcRefresh` - tree provider refresh trigger
 - [ ] `openBcPreview` - auto preview toggle handling
 - [ ] `configureBcFolder` - settings.json opening
-- [ ] `bcNormalize` - jsvalidator normalization
+- [ ] `bcNormalize` - validator normalization
 - [ ] `bcPreviewFiltered` - multi-preview with limit
 - [ ] `bcExportGitDiff` - git repo detection, commit picker, diff generation
 - [ ] `bcTogglePreview` - state toggle and context update
@@ -134,7 +134,7 @@ node test/vscode/bcTreeProvider.test.js
 
 ### Priority 1 (High) - Essential Coverage
 1. **bcPreviewManager.js** - Core preview and rendering logic
-2. **bcCommands.js** - Command handlers with external dependencies (git, jsvalidator)
+2. **bcCommands.js** - Command handlers with external dependencies (git, validator)
 3. **Integration tests** - End-to-end workflows (open preview, run validation, export diff)
 
 ### Priority 2 (Medium) - Important Coverage
@@ -149,7 +149,7 @@ node test/vscode/bcTreeProvider.test.js
 ### Unit Test Approach
 - Mock vscode API using the same pattern as `stateAndConfig.test.js`
 - Mock file system operations with temp directories
-- Mock jsvalidator imports (or test against real jsvalidator in co-develop mode)
+- Mock validator imports (or test against real validator in co-develop mode)
 - Test error handling paths
 - Test edge cases (empty folders, invalid JSON, missing files)
 
@@ -162,7 +162,7 @@ node test/vscode/bcTreeProvider.test.js
 
 ### Mocking Strategy
 For external dependencies:
-- **jsvalidator**: Can use real imports in co-develop mode, or mock BC_ID/BC classes
+- **validator**: Can use real imports in co-develop mode, or mock BC_ID/BC classes
 - **git commands**: Mock `execSync` to return test data
 - **webviews**: Verify HTML generation and message handlers
 - **file system**: Use temp directories for safe testing

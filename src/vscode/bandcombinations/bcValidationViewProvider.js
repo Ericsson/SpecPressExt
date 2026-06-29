@@ -67,9 +67,9 @@ class BcValidationViewProvider {
       },
       async (progress) => {
         try {
-          progress.report({ message: 'Loading jsvalidator...' })
-          const { loadAndValidateAll } = await import('ran4-jsvalidator/src/ValidateData.js')
-          const { logger } = await import('ran4-jsvalidator/src/Logger.js')
+          progress.report({ message: 'Loading validator...' })
+          const { loadAndValidateAll } = await import('specpress/lib/ran4/ValidateData.js')
+          const { logger } = await import('specpress/lib/ran4/Logger.js')
 
           progress.report({ message: 'Opening log file...' })
           await logger.openFile(logPath)
@@ -78,8 +78,8 @@ class BcValidationViewProvider {
 
           let result
           if (scope === 'bands') {
-            const { RAN4DataHandler } = await import('ran4-jsvalidator/src/RAN4DataHandler.js')
-            const { LoadSchema } = await import('ran4-jsvalidator/src/JsonTools.js')
+            const { RAN4DataHandler } = await import('specpress/lib/ran4/RAN4DataHandler.js')
+            const { LoadSchema } = await import('specpress/lib/ran4/JsonTools.js')
             const db = new RAN4DataHandler()
 
             let schemaBand = null
@@ -91,8 +91,8 @@ class BcValidationViewProvider {
             const exitCode = (r1.contentErrors > 0 ? 1 : 0) | (r1.schemaErrors > 0 ? 2 : 0)
             result = { exitCode }
           } else if (scope === 'bands+ca') {
-            const { RAN4DataHandler } = await import('ran4-jsvalidator/src/RAN4DataHandler.js')
-            const { LoadSchema } = await import('ran4-jsvalidator/src/JsonTools.js')
+            const { RAN4DataHandler } = await import('specpress/lib/ran4/RAN4DataHandler.js')
+            const { LoadSchema } = await import('specpress/lib/ran4/JsonTools.js')
             const db = new RAN4DataHandler()
 
             let schemaBand = null
@@ -161,7 +161,7 @@ class BcValidationViewProvider {
     if (!this._view || !this._view.webview) return
 
     const logs = this.getRecentLogFiles()
-    
+
     // Small delay to ensure webview is ready
     setTimeout(() => {
       try {
@@ -229,7 +229,7 @@ class BcValidationViewProvider {
       color: var(--vscode-foreground);
       margin: 0;
     }
-    
+
     button {
       width: 100%;
       padding: 8px;
@@ -241,19 +241,19 @@ class BcValidationViewProvider {
       font-size: 13px;
       text-align: left;
     }
-    
+
     button:hover {
       background: var(--vscode-button-hoverBackground);
     }
-    
+
     .section {
       margin: 10px 0;
     }
-    
+
     .section:first-child {
       margin-top: 0;
     }
-    
+
     .section-title {
       font-weight: bold;
       margin-bottom: 8px;
@@ -261,7 +261,7 @@ class BcValidationViewProvider {
       text-transform: uppercase;
       opacity: 0.8;
     }
-    
+
     select {
       width: 100%;
       padding: 4px;
@@ -270,7 +270,7 @@ class BcValidationViewProvider {
       color: var(--vscode-dropdown-foreground);
       border: 1px solid var(--vscode-dropdown-border);
     }
-    
+
     label {
       display: flex;
       align-items: center;
@@ -278,15 +278,15 @@ class BcValidationViewProvider {
       cursor: pointer;
       font-size: 12px;
     }
-    
+
     input[type="checkbox"] {
       margin-right: 6px;
     }
-    
+
     .log-list {
       margin-top: 10px;
     }
-    
+
     .log-item {
       padding: 6px 8px;
       margin: 3px 0;
@@ -295,19 +295,19 @@ class BcValidationViewProvider {
       font-size: 11px;
       border-radius: 2px;
     }
-    
+
     .log-item:hover {
       background: var(--vscode-list-activeSelectionBackground);
       color: var(--vscode-list-activeSelectionForeground);
     }
-    
+
     .no-logs {
       padding: 8px;
       font-size: 11px;
       opacity: 0.6;
       font-style: italic;
     }
-    
+
     .refresh-btn {
       font-size: 11px;
       padding: 4px 8px;
@@ -325,7 +325,7 @@ class BcValidationViewProvider {
       <option value="bands+ca+dc" selected>Bands + CA + DC</option>
     </select>
   </div>
-  
+
   <div class="section">
     <div class="section-title">Validation Types</div>
     <label>
@@ -337,11 +337,11 @@ class BcValidationViewProvider {
       Schema validation
     </label>
   </div>
-  
+
   <div class="section">
     <button id="validateBtn">▶ Run Validation</button>
   </div>
-  
+
   <div class="section">
     <div class="section-title">
       Recent Logs
@@ -351,20 +351,20 @@ class BcValidationViewProvider {
       <div class="no-logs">No logs available</div>
     </div>
   </div>
-  
+
   <script>
     const vscode = acquireVsCodeApi();
-    
+
     // Notify extension that webview is ready
     window.addEventListener('load', () => {
       vscode.postMessage({ command: 'ready' });
     });
-    
+
     document.getElementById('validateBtn').addEventListener('click', () => {
       const scope = document.getElementById('scope').value;
       const skipContent = !document.getElementById('contentValidation').checked;
       const skipSchema = !document.getElementById('schemaValidation').checked;
-      
+
       vscode.postMessage({
         command: 'validate',
         scope: scope,
@@ -372,23 +372,23 @@ class BcValidationViewProvider {
         skipSchema: skipSchema
       });
     });
-    
+
     document.getElementById('refreshBtn').addEventListener('click', () => {
       vscode.postMessage({ command: 'refresh' });
     });
-    
+
     window.addEventListener('message', event => {
       const message = event.data;
       if (message.command === 'updateLogs') {
         const logList = document.getElementById('logList');
-        
+
         if (message.logs.length === 0) {
           logList.innerHTML = '<div class="no-logs">No logs available</div>';
         } else {
-          logList.innerHTML = message.logs.map(log => 
+          logList.innerHTML = message.logs.map(log =>
             \`<div class="log-item" data-path="\${log.path}">\${log.label}</div>\`
           ).join('');
-          
+
           document.querySelectorAll('.log-item').forEach(item => {
             item.addEventListener('click', () => {
               vscode.postMessage({

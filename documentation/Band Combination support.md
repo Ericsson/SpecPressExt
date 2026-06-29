@@ -20,7 +20,7 @@ The Band Combination pane should support:
   - Button to start validation and an icon showing whether it succeeded or not.
   - Should write output to a temporary "*.log" file and offer button to open it in an editor window.
 - WebView — live HTML table preview of the currently open BC JSON file (using the existing toHTML / HtmlTable logic). It should be in the main pane and show up by default in a split editor view like the specpressext existing spec preview.
-- A button to "Normalize" the currently opened file. (see jsvalidator's "src\NormalizeBC.ts")
+- A button to "Normalize" the currently opened file. (see specpress's "lib\ran4\NormalizeBC.ts")
 
 ## Architecture plan
 
@@ -43,7 +43,7 @@ Added `specpress.bandCombinationFolder` configuration parameter (set to `"."`) i
   - Shows "Configuration Required" hint with link to settings when `bandCombinationFolder` is not set
   - Shows "No Band Combinations Found" when folder is configured but empty
   - Automatically refreshes when `bandCombinationFolder` setting changes
-  - **BC_ID-based sorting** using jsvalidator's `BC_ID.lessThan()`/`greaterThan()` methods with fallback to string sort
+  - **BC_ID-based sorting** using the validator's `BC_ID.lessThan()`/`greaterThan()` methods with fallback to string sort
   - **Type filters**: controls which file types are loaded (CA, DC, Bands)
     - DC files not loaded by default for performance
     - Only enabled types are scanned from disk
@@ -102,7 +102,7 @@ Added `specpress.bandCombinationFolder` configuration parameter (set to `"."`) i
   - Shows success/error notifications after validation
 - `bcCommands.js` — command handlers for refresh, open preview, normalize, configure folder, preview filtered, export git diff, and toggle preview
   - `bcValidate` and `bcOpenLog` functions removed (functionality moved to bcValidationViewProvider)
-  - `bcNormalize` — normalizes currently open CA/DC JSON file using jsvalidator
+  - `bcNormalize` — normalizes currently open CA/DC JSON file using the validator
   - `bcPreviewFiltered` — generates multi-BC HTML preview for all currently filtered entries
     - Limited to first 100 entries for performance
     - Shows info message if more than 100 entries match
@@ -123,11 +123,11 @@ Added `specpress.bandCombinationFolder` configuration parameter (set to `"."`) i
     - Entries sorted using BC_ID comparison (same as tree view)
     - Live editing disabled in multi-BC mode
     - Simplified HTML output without file/BCS info headers
-  - Uses jsvalidator's `BC.toHTML()` method for proper HTML rendering
-  - Uses jsvalidator's `BandCombinationList.addTableHeaders()` for column headers (single source of truth)
+  - Uses the validator's `BC.toHTML()` method for proper HTML rendering
+  - Uses the validator's `BandCombinationList.addTableHeaders()` for column headers (single source of truth)
   - Sticky table headers for better scrolling in multi-BC preview
   - Renders `&nbsp;` values as empty cells (not as escaped text)
-  - Falls back to simple JSON view if jsvalidator import fails
+  - Falls back to simple JSON view if validator import fails
   - Renders HtmlTable output with proper table structure and rowspan handling
 - Updated `extension.js` to always initialize BC pane (not conditionally)
 - Updated `package.json` to:
@@ -145,7 +145,7 @@ Added `specpress.bandCombinationFolder` configuration parameter (set to `"."`) i
   - Count of matching entries in tree description (e.g., "Band Combinations (42)")
 - Clicking BC entry opens preview panel in split editor
 - Right-click CA_*.json or DC_*.json files in explorer → "Open Band Combination Preview" or "Normalize Band Combination"
-- Preview panel shows full Band Combination table rendered via jsvalidator
+- Preview panel shows full Band Combination table rendered via the validator
 - Live preview updates when editing JSON files (500ms debounce) in single-BC mode
 - Multi-BC preview shows up to 100 filtered entries in a single table (eye icon toolbar button)
 - Export git diff between any two commits or commit and local files (diff icon toolbar button)
@@ -180,20 +180,16 @@ The following has been added to `package.json`:
   - `specpress.bcTogglePreview` (eye icon / eye-closed icon) — toggle auto preview on tree selection
 - **Configuration:** `specpress.bandCombinationFolder` (string) — path to the 38.101 data repository root.
 
-## jsvalidator integration (done)
+## RAN4 validator integration (done)
 
-- `co-develop.cmd` creates a junction `node_modules/ran4-jsvalidator` pointing to the local jsvalidator repo (relative path: `..\..\3gpp\ran4\tools\jsvalidator`).
-- jsvalidator's `package.json` has `"exports": { "./src/*": "./dist/src/*" }` so subpath imports work.
-- jsvalidator must be compiled (`npx tsc` in the jsvalidator folder) before imports work. The compiled output lives in `dist/`.
-- Since SpecPressExt is CommonJS and jsvalidator is ESM, use **dynamic `import()`** in extension code:
+The RAN4 validator code (formerly "jsvalidator") has been merged into the specpress library under `lib/ran4/`. Since SpecPressExt is CommonJS and the validator is ESM, use **dynamic `import()`** in extension code:
   ```javascript
-  const { BC_ID } = await import('ran4-jsvalidator/src/BC_ID.js')
-  const { BC, BandCombinationList } = await import('ran4-jsvalidator/src/BandCombinations.js')
-  const { loadAndValidateAll } = await import('ran4-jsvalidator/src/ValidateData.js')
+  const { BC_ID } = await import('specpress/lib/ran4/BC_ID.js')
+  const { BC, BandCombinationList } = await import('specpress/lib/ran4/BandCombinations.js')
+  const { loadAndValidateAll } = await import('specpress/lib/ran4/ValidateData.js')
   ```
-- For GitHub release builds, packaging strategy is TBD (npm publish, bundled dist, or git submodule).
 
-## jsvalidator changes made in this session
+## RAN4 validator changes made during development
 
 ### BandCombinations.ts — static addTableHeaders method (new)
 
@@ -203,7 +199,7 @@ Added `BandCombinationList.addTableHeaders(aHtmlTable: HtmlTable)` as a static h
 - Ensures consistency across all BC table renderings
 - Refactored existing `storeAsHtmlFile()` to use this method
 
-This provides a single source of truth for the table structure. Future enhancements (hyperlinks, hover text, etc.) only need to be implemented once in jsvalidator.
+This provides a single source of truth for the table structure. Future enhancements (hyperlinks, hover text, etc.) only need to be implemented once in the validator.
 
 ### BWC_ID.ts — getNrofCarriers() method (new)
 
@@ -227,7 +223,7 @@ Used by SpecPressExt carrier count filter for accurate filtering.
 
 ### NormalizeBC.ts (new script)
 
-A helper at `jsvalidator/src/NormalizeBC.ts` that loads a single BC JSON file and saves it back normalized:
+A helper at `specpress/lib/ran4/NormalizeBC.ts` that loads a single BC JSON file and saves it back normalized:
 ```bash
 npx tsx src/NormalizeBC.ts <path-to-BC-json-file>
 ```
@@ -237,7 +233,7 @@ Normalization effects:
 - `notes` object keys sorted alphabetically
 - Consistent indentation via `RAN4JsonEncoder`
 
-A VS Code task is configured in `jsvalidator/.vscode/tasks.json` bound to a keyboard shortcut. Uses `node --import tsx/esm` for clean process exit. Terminal auto-closes silently.
+A VS Code task is configured in `specpress/.vscode/tasks.json` bound to a keyboard shortcut. Uses `node --import tsx/esm` for clean process exit. Terminal auto-closes silently.
 
 ### JsonTools.ts — alphabetical key sorting
 
@@ -261,7 +257,7 @@ Added HTML rendering enhancements for notes and references:
   - BC references: `<a href="#" class="bc-ref-link" data-ref="CA_n3B" data-bcs="0">CA_n3B_BCS0</a>`
   - Used by `BandEntry.toHTML()` for displaying refComponents as links
 
-**Architecture**: Note descriptions are NOT hardcoded in jsvalidator. They are loaded from JSON schema files at runtime by SpecPressExt and passed as parameters. This ensures descriptions stay synchronized with the schema as it evolves.
+**Architecture**: Note descriptions are NOT hardcoded in the validator. They are loaded from JSON schema files at runtime by SpecPressExt and passed as parameters. This ensures descriptions stay synchronized with the schema as it evolves.
 
 `BCS.toJSON()` sorts `ulConfigList` before writing: band numbers first (by numeric value), then BC-IDs (using `BC_ID.lessThan()`).
 
@@ -278,16 +274,9 @@ Added HTML rendering enhancements for notes and references:
 
 `BaseList._loadFiles()` now catches exceptions from `_createEntry()`. In `--no-abort` mode, it logs the error with file path context and continues loading remaining files instead of crashing.
 
-## Future: Merge jsvalidator into specpress (planned)
+## Merge of RAN4 validator into specpress (done)
 
-**Motivation:**
-- Reduce maintenance burden from 3 repos (SpecPressExt, specpress, jsvalidator) to 2 repos
-- specpress is already published as npm package and used in CI pipelines
-- jsvalidator is 3GPP RAN4 tooling, natural fit with specpress (3GPP spec tooling)
-- Unified versioning for all 3GPP tools
-- SpecPressExt would only depend on `specpress` (not specpress + jsvalidator)
-
-**Proposed approach: Option 1 - Keep TypeScript for RAN4, add targeted build**
+The RAN4 validator (formerly the standalone "jsvalidator" repository) has been merged into specpress under `lib/ran4/`.
 
 **Structure:**
 ```
@@ -296,7 +285,7 @@ specpress/
     common/           ← existing specpress common code (JS)
     md2html/          ← existing markdown-to-HTML (JS)
     md2docx/          ← existing markdown-to-DOCX (JS)
-    ran4/             ← NEW: jsvalidator code moved here (TS)
+    ran4/             ← RAN4 validator code (TS)
       BC_ID.ts
       BWC_ID.ts
       BandCombinations.ts
@@ -308,40 +297,20 @@ specpress/
     cli/
       export-html.js
       export-docx.js
-      validate-ran4.js  ← NEW: CLI wrapper for RAN4 validation
-  test/
-    ran4/             ← NEW: jsvalidator tests moved here
+      validate-ran4.js  ← CLI wrapper for RAN4 validation
+      normalize-ran4.js ← CLI wrapper for BC normalization
+  test/lib/
+    ran4/             ← RAN4 validator tests (322 tests)
+  dist/lib/ran4/      ← compiled output (built via tsc)
   package.json        ← exports: {"./lib/ran4/*": "./dist/lib/ran4/*"}
-  tsconfig.json       ← NEW: compiles lib/ran4/**/*.ts to dist/lib/ran4/
+  tsconfig.json       ← compiles lib/ran4/**/*.ts to dist/lib/ran4/
 ```
 
-**Benefits:**
-- jsvalidator keeps TypeScript (type safety for complex data models)
-- Existing specpress JS code unchanged (no migration needed)
-- Build step isolated to RAN4 code only
-- CI pipelines: `npm install specpress && node node_modules/specpress/lib/cli/validate-ran4.js`
-- SpecPressExt: `import { BC_ID } from 'specpress/lib/ran4/BC_ID.js'`
+**Usage:**
+- CI pipelines: `npx specpress-validate-ran4 <rootFolder>`
+- SpecPressExt: `await import('specpress/lib/ran4/BC_ID.js')`
 - Other projects: `npm install specpress` then import RAN4 classes
 
-**Migration steps:**
-1. Move `jsvalidator/src/` → `specpress/lib/ran4/`
-2. Move `jsvalidator/test/` → `specpress/test/ran4/`
-3. Add TypeScript to specpress devDependencies
-4. Add `tsconfig.json` for RAN4 folder compilation
-5. Update `package.json` exports and build scripts
-6. Add `validate-ran4.js` CLI script
-7. Update specpress README with RAN4 documentation
-8. Update SpecPressExt imports: `ran4-jsvalidator/...` → `specpress/lib/ran4/...`
-9. Publish new specpress version
-10. Archive jsvalidator repo with redirect notice
-
 **Future evolution path (optional):**
-- **Phase 1:** RAN4 code in TypeScript (as above)
 - **Phase 2:** Enable `"allowJs": true` in tsconfig to allow TS/JS coexistence
 - **Phase 3:** Gradually convert existing JS files to TS (non-breaking, at own pace)
-
-**TypeScript/JavaScript mix:**
-- Option 1 allows TS for RAN4 while keeping existing code as JS
-- Can later migrate entire specpress to TypeScript incrementally
-- `"allowJs": true` enables gradual migration without breaking changes
-- Consumers always get compiled JS, regardless of source language

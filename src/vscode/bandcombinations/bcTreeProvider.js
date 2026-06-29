@@ -32,7 +32,7 @@ class BcTreeProvider {
     this.loadDC = false
     this.loadBands = true
     this.treeView = null // Will be set from bcInitializer.js
-    
+
     // Listen for config changes to refresh tree
     this.configChangeListener = vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration('specpress.bandCombinationFolder')) {
@@ -78,10 +78,10 @@ class BcTreeProvider {
   async applyFilters(files) {
     let BC_ID = null
     try {
-      const mod = await import('ran4-jsvalidator/src/BC_ID.js')
+      const mod = await import('specpress/lib/ran4/BC_ID.js')
       BC_ID = mod.BC_ID
     } catch (e) {
-      // jsvalidator not available, use simple heuristic
+      // 38.101 validator not available, use simple heuristic
     }
 
     // Get modified files from git if needed
@@ -101,16 +101,16 @@ class BcTreeProvider {
           return false
         }
       }
-      
+
       // Filter by BC ID (exact match)
       if (this.filterBcId && bc.bcId.toLowerCase() !== this.filterBcId) {
         return false
       }
-      
+
       // Filter by band numbers
       if (this.filterBands.length > 0) {
         const bandNumbers = this.extractBandNumbers(bc.bcId)
-        
+
         if (this.filterBandsMode === 'only') {
           // Only mode: BC must contain exactly these bands
           if (bandNumbers.length !== this.filterBands.length) {
@@ -126,14 +126,14 @@ class BcTreeProvider {
           }
         }
       }
-      
+
       // Filter by number of carriers
       if (this.filterCarriers) {
         const targetCount = parseInt(this.filterCarriers)
-        const carrierCount = BC_ID 
+        const carrierCount = BC_ID
           ? this.getCarrierCountUsingBcId(bc.bcId, BC_ID)
           : this.extractCarrierCountHeuristic(bc.bcId)
-        
+
         if (this.filterCarriersMode === 'exactly') {
           if (carrierCount !== targetCount) return false
         } else if (this.filterCarriersMode === 'atLeast') {
@@ -142,21 +142,21 @@ class BcTreeProvider {
           if (carrierCount > targetCount) return false
         }
       }
-      
+
       // Filter by properties (using BC_ID methods)
       if (this.filterProperties.length > 0 && BC_ID) {
         try {
           const bcIdObj = new BC_ID(bc.bcId)
-          
+
           for (const prop of this.filterProperties) {
             let matches = false
-            
+
             if (prop === 'intraBand' && bcIdObj.isIntraBand()) matches = true
             else if (prop === 'fr1' && bcIdObj.isFr1()) matches = true
             else if (prop === 'fr2' && bcIdObj.isFr2()) matches = true
             else if (prop === 'nr' && bcIdObj.isNR()) matches = true
             else if (prop === 'sul' && bcIdObj.isSUL()) matches = true
-            
+
             if (!matches) return false
           }
         } catch (e) {
@@ -164,7 +164,7 @@ class BcTreeProvider {
           return false
         }
       }
-      
+
       // Filter by UL notes
       if (this.filterUlNotes.length > 0 && bc.data && bc.data.bcsList) {
         let hasAnyUlNote = false
@@ -186,7 +186,7 @@ class BcTreeProvider {
         }
         if (!hasAnyUlNote) return false
       }
-      
+
       // Filter by DL notes (BC-level notes)
       if (this.filterDlNotes.length > 0) {
         if (!bc.data || !bc.data.notes) {
@@ -201,7 +201,7 @@ class BcTreeProvider {
         }
         if (!hasAnyDlNote) return false
       }
-      
+
       return true
     })
   }
@@ -234,37 +234,37 @@ class BcTreeProvider {
   async getModifiedFiles() {
     const { execSync } = require('child_process')
     const modifiedFiles = new Set()
-    
+
     const bcFolder = this.config.raw.get('bandCombinationFolder', '')
     if (!bcFolder) return modifiedFiles
-    
-    const absFolder = path.isAbsolute(bcFolder) 
-      ? bcFolder 
+
+    const absFolder = path.isAbsolute(bcFolder)
+      ? bcFolder
       : this.config.wsRoot ? path.join(this.config.wsRoot, bcFolder) : bcFolder
-    
+
     // Find all git repos under the BC folder
     const gitRepos = this.findGitRepos(absFolder)
-    
+
     // Get modified files from each repo
     for (const gitRoot of gitRepos) {
       try {
-        const output = execSync('git status --porcelain', { 
-          cwd: gitRoot, 
-          encoding: 'utf8' 
+        const output = execSync('git status --porcelain', {
+          cwd: gitRoot,
+          encoding: 'utf8'
         })
-        
+
         const lines = output.split('\n').filter(line => line.trim())
-        
+
         for (const line of lines) {
           if (line.length < 4) continue
-          
+
           const status = line.substring(0, 2)
           let filename = line.substring(3).trim()
-          
+
           if (filename.startsWith('"') && filename.endsWith('"')) {
             filename = filename.slice(1, -1)
           }
-          
+
           // Only modified/added/untracked JSON files
           if ((status.includes('M') || status.includes('A') || status.includes('?')) && filename.endsWith('.json')) {
             const fullPath = path.resolve(gitRoot, filename).toLowerCase().replace(/\\/g, '/')
@@ -275,25 +275,25 @@ class BcTreeProvider {
         // Silently skip git repos with errors
       }
     }
-    
+
     return modifiedFiles
   }
 
   findGitRepos(rootPath) {
     const repos = []
-    
+
     const scanDir = (dir, depth = 0) => {
       if (depth > 3) return // Don't scan too deep
-      
+
       try {
         const entries = fs.readdirSync(dir, { withFileTypes: true })
-        
+
         // Check if this directory is a git repo
         if (entries.some(e => e.isDirectory() && e.name === '.git')) {
           repos.push(dir)
           return // Don't scan subdirectories of a git repo
         }
-        
+
         // Recursively scan subdirectories
         for (const entry of entries) {
           if (entry.isDirectory() && entry.name !== '.git' && entry.name !== 'node_modules') {
@@ -304,7 +304,7 @@ class BcTreeProvider {
         // Skip inaccessible directories
       }
     }
-    
+
     scanDir(rootPath)
     return repos
   }
@@ -314,8 +314,8 @@ class BcTreeProvider {
     const bcFolder = this.config.raw.get('bandCombinationFolder', '')
     if (!bcFolder) return
 
-    const absFolder = path.isAbsolute(bcFolder) 
-      ? bcFolder 
+    const absFolder = path.isAbsolute(bcFolder)
+      ? bcFolder
       : this.config.wsRoot ? path.join(this.config.wsRoot, bcFolder) : bcFolder
 
     if (!fs.existsSync(absFolder)) return
@@ -336,12 +336,12 @@ class BcTreeProvider {
           const isDC = entry.name.startsWith('DC_')
           const isCA = entry.name.startsWith('CA_')
           const isBand = entry.name.match(/^n\d+\.json$/)
-          
+
           // Skip if type is disabled
           if (isDC && !this.loadDC) continue
           if (isCA && !this.loadCA) continue
           if (isBand && !this.loadBands) continue
-          
+
           // Only load CA_*, DC_*, or band files (n*.json)
           if (isCA || isDC || isBand) {
             try {
@@ -350,9 +350,9 @@ class BcTreeProvider {
               // For band files, bcId might be in the data or derive from filename
               const bcId = data.bcId || (isBand ? entry.name.replace('.json', '') : null)
               if (bcId) {
-                this.bcFiles.push({ 
-                  path: fullPath, 
-                  bcId: bcId, 
+                this.bcFiles.push({
+                  path: fullPath,
+                  bcId: bcId,
                   data,
                   isBand: !!isBand,
                   isCA: !!isCA,
@@ -387,7 +387,7 @@ class BcTreeProvider {
   async getChildren(element) {
     if (!element) {
       const bcFolder = this.config.raw.get('bandCombinationFolder', '')
-      
+
       if (!bcFolder) {
         // Show configuration hint
         const item = new BcTreeItem(
@@ -405,11 +405,11 @@ class BcTreeProvider {
         }
         return [item]
       }
-      
+
       if (this.bcFiles.length === 0) {
         this.loadBcFiles()
       }
-      
+
       if (this.bcFiles.length === 0) {
         // Show empty state
         const item = new BcTreeItem(
@@ -423,15 +423,15 @@ class BcTreeProvider {
         item.iconPath = new vscode.ThemeIcon('search')
         return [item]
       }
-      
+
       // Sort using BC_ID comparison
       const filteredFiles = await this.applyFilters(this.bcFiles)
       this.currentFilteredFiles = filteredFiles
       const sortedFiles = await this.sortBcFiles(filteredFiles)
-      
+
       // Update tree title with count
       this.updateTreeTitle()
-      
+
       return sortedFiles.map(bc => {
         const item = new BcTreeItem(
           bc.bcId,
@@ -442,8 +442,8 @@ class BcTreeProvider {
         item.description = path.basename(bc.path)
         item.tooltip = bc.path
         // Different icon for band files vs CA/DC configurations
-        item.iconPath = bc.isBand 
-          ? new vscode.ThemeIcon('symbol-constant') 
+        item.iconPath = bc.isBand
+          ? new vscode.ThemeIcon('symbol-constant')
           : new vscode.ThemeIcon('symbol-file')
         item.command = {
           command: 'specpress.openBcPreview',
@@ -462,14 +462,14 @@ class BcTreeProvider {
 
   async sortBcFiles(files) {
     try {
-      const { BC_ID } = await import('ran4-jsvalidator/src/BC_ID.js')
-      const { BandNumber } = await import('ran4-jsvalidator/src/BandNumber.js')
-      
+      const { BC_ID } = await import('specpress/lib/ran4/BC_ID.js')
+      const { BandNumber } = await import('specpress/lib/ran4/BandNumber.js')
+
       return files.slice().sort((a, b) => {
         // Bands come before CA/DC configurations
         if (a.isBand && !b.isBand) return -1
         if (!a.isBand && b.isBand) return 1
-        
+
         // Both are bands: sort numerically by band number
         if (a.isBand && b.isBand) {
           try {
@@ -480,12 +480,12 @@ class BcTreeProvider {
             return a.bcId.localeCompare(b.bcId)
           }
         }
-        
+
         // Both are BC configurations: use BC_ID comparison
         try {
           const bcIdA = new BC_ID(a.bcId)
           const bcIdB = new BC_ID(b.bcId)
-          
+
           if (bcIdA.lessThan(bcIdB)) return -1
           if (bcIdA.greaterThan(bcIdB)) return 1
           return 0
@@ -495,11 +495,11 @@ class BcTreeProvider {
         }
       })
     } catch (e) {
-      // If jsvalidator import fails, fallback to simple string sort
+      // If RAN4 validator import fails, fallback to simple string sort
       return files.slice().sort((a, b) => a.bcId.localeCompare(b.bcId))
     }
   }
-  
+
   dispose() {
     if (this.configChangeListener) {
       this.configChangeListener.dispose()

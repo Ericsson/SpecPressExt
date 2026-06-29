@@ -14,7 +14,7 @@
 
 **bcPreviewManager.js** - 0% coverage
 - Core preview rendering logic
-- jsvalidator integration
+- validator integration
 - Webview HTML generation
 - Live update handling
 - Reference link navigation
@@ -22,7 +22,7 @@
 
 **bcCommands.js** - 0% coverage
 - Git integration (repo detection, diff export)
-- jsvalidator normalization
+- validator normalization
 - Preview toggle state management
 - Multi-file preview limits
 - **Risk**: Complex git operations, external process calls
@@ -76,13 +76,13 @@ npm run test:quick
 
 1. **Add bcPreviewManager tests** - Most critical, highest risk
    - Test HTML generation from BC data
-   - Test jsvalidator integration
+   - Test validator integration
    - Test live update debouncing
    - Mock webview API
 
 2. **Add bcCommands tests** - Second priority
    - Test git operations with mocked execSync
-   - Test normalization with mocked jsvalidator
+   - Test normalization with mocked validator
    - Test state toggle logic
    - Test error handling
 
@@ -115,7 +115,7 @@ Target metrics:
 
 ## Why Testing Matters for BC Pane
 
-1. **External Dependencies**: Git, jsvalidator - integration points are error-prone
+1. **External Dependencies**: Git, validator - integration points are error-prone
 2. **File System Operations**: Scanning, filtering large directories - needs performance testing
 3. **Complex State**: Multiple filters, type toggles, auto-preview state - easy to break
 4. **User Workflows**: Preview, validate, export - critical paths need coverage
@@ -128,7 +128,7 @@ For developers adding BC tests:
 1. Follow the pattern in `bcTreeProvider.test.js`
 2. Use vscode mocking from `stateAndConfig.test.js`
 3. Create temp directories for file system tests
-4. Mock external dependencies (git, jsvalidator)
+4. Mock external dependencies (git, validator)
 5. Test both success and error paths
 6. Use async test helpers for async code
 7. Clean up resources in tests

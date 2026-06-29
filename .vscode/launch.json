@@ -8,6 +8,7 @@
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
         "--disable-extension=ossnokalva.asn1vcx",
+        // "C:\\Data\\git\\repo\\3gpp\\FS_6Gspecs_new\\ericsson_multifiletypes_onem2m_example"
         "C:\\Data\\git\\repo\\3gpp\\ran4\\specifications\\38.101"
       ],
       "outFiles": ["${workspaceFolder}/src/**/*.js"],

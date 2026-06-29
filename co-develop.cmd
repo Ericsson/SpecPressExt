@@ -14,10 +14,6 @@ rem Replace the npm-installed specpress with a junction to the local repo
 if exist node_modules\specpress rmdir /s /q node_modules\specpress
 mklink /J node_modules\specpress "%~dp0..\specpress"
 
-rem Link the local jsvalidator for BC pane development
-if exist node_modules\ran4-jsvalidator rmdir /s /q node_modules\ran4-jsvalidator
-mklink /J node_modules\ran4-jsvalidator "%~dp0..\..\3gpp\ran4\tools\jsvalidator"
-
 echo.
 echo Verifying link...
 findstr "fileResolver" node_modules\specpress\lib\md2docx\md2docx.js >nul 2>&1
