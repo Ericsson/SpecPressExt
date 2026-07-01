@@ -13,6 +13,13 @@ const fs = require('fs')
 const path = require('path')
 const { spawnSync } = require('child_process')
 const os = require('os')
+const { findWinword } = require('../../src/utils/winword')
+
+// Skip on non-Windows or when Word is not installed
+if (!findWinword()) {
+  console.log('SKIPPED: DOCX DIFF e2e test requires Windows with Microsoft Word installed')
+  process.exit(0)
+}
 
 // Get temp directory
 const tempDir = os.tmpdir()

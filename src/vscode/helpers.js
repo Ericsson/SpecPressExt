@@ -5,6 +5,7 @@ const { execSync } = require('child_process')
 const { getGitLog } = require('specpress/lib/common/gitHelpers')
 const { collectFiles } = require('specpress/lib/common/specProcessor')
 const { collectFilesFromCommit } = require('specpress/lib/common/gitHelpers')
+const { findWinword } = require('../utils/winword')
 
 const NOT_CONFIGURED_MSG = 'SpecPress: specpress.specificationRootPath is not configured. Set it in workspace settings to enable SpecPress features.'
 
@@ -39,25 +40,6 @@ async function showExportNotification(message, folderPath, filePath) {
     else if (process.platform === 'darwin') exec(`open "${folderPath}"`)
     else if (process.platform === 'linux') exec(`xdg-open "${folderPath}"`)
     else vscode.env.openExternal(vscode.Uri.file(folderPath))
-  }
-}
-
-/**
- * Detects the path to winword.exe via the Windows registry.
- * Returns the path if found and the file exists, or null otherwise.
- */
-function findWinword() {
-  if (process.platform !== 'win32') return null
-  try {
-    const result = require('child_process').execSync(
-      'reg query "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\Winword.exe" /ve',
-      { encoding: 'utf8' }
-    )
-    const match = result.match(/REG_SZ\s+(.+)/)
-    const p = match ? match[1].trim() : null
-    return (p && require('fs').existsSync(p)) ? p : null
-  } catch (e) {
-    return null
   }
 }
 

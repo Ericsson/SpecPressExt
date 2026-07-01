@@ -5,6 +5,27 @@ All notable changes to the SpecPress Extension for VS Code will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] - 2026-07-01
+
+### Added
+
+- **DOCX DIFF e2e test** - Automated end-to-end test for multi-version DOCX comparison; gracefully skipped on non-Windows or when Microsoft Word is not installed
+
+### Changed
+
+- **DOCX DIFF** - Enhanced multi-version tracked-changes comparison:
+  - Compare 2-5 versions (commits or local files) in a single operation (previously limited to 2)
+  - Author attribution per version transition with smart defaults from commit hash + message
+  - CR-based filename generation when `spec/history/CRxxxx.json` exists
+  - Headless Word automation runs invisibly in the background
+  - See [detailed DOCX DIFF documentation](documentation/DOCX-DIFF.md)
+- **Refactoring** - Extracted `findWinword` into `src/utils/winword.js` (no VS Code dependency) so it can be shared between extension code and tests
+- Updated to specpress 3.2.4
+
+### Security
+
+- Updated dependencies to fix 3 vulnerabilities: `linkify-it` (high), `markdown-it` (moderate), `qs` (moderate)
+
 ## [0.7.2] - 2026-06-01
 
 ### Added
@@ -111,6 +132,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic preview functionality
 - DOCX export support
 
+[0.7.3]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/Ericsson/SpecPressExt/compare/v0.6.13...v0.7.1
 [0.6.13]: https://github.com/Ericsson/SpecPressExt/releases/tag/v0.6.13
