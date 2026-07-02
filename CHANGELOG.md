@@ -5,7 +5,7 @@ All notable changes to the SpecPress Extension for VS Code will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.4] - 2025-07-02
 
 ### Added
 
@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Rich filter pane: band numbers (Any of / At Least / Only), number of carriers, number of bands, properties (Intra/Inter, FR1/FR2, Contiguous/Non-contiguous, NR only, SUL), UL/DL notes, git-modified status
   - Run schema and content validation with results written to a log file
   - Right-click a JSON file to normalize it (canonical key ordering, consistent formatting)
+
+### Changed
+
+- Updated to specpress 3.2.6
 
 ## [0.7.3] - 2026-07-01
 
@@ -142,6 +146,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic preview functionality
 - DOCX export support
 
+[0.7.4]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/Ericsson/SpecPressExt/compare/v0.6.13...v0.7.1
