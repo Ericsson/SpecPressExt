@@ -31,7 +31,9 @@ class BcFilterViewProvider {
               message.properties,
               message.modifiedOnly,
               message.ulNotes,
-              message.dlNotes
+              message.dlNotes,
+              message.numBands,
+              message.numBandsMode
             )
 
             // Re-enable filter button
@@ -39,7 +41,7 @@ class BcFilterViewProvider {
           }, 10)
           break
         case 'clear':
-          this.bcTreeProvider.setFilters('', [], 'atLeast', '', 'exactly', [], false, [], [])
+          this.bcTreeProvider.setFilters('', [], 'atLeast', '', 'exactly', [], false, [], [], '', 'exactly')
           webviewView.webview.html = this.getHtmlContent()
           break
         case 'toggleType':
@@ -79,7 +81,7 @@ class BcFilterViewProvider {
     }
     input {
       width: 100%;
-      padding: 4px 8px;
+      padding: 4px 4px;
       box-sizing: border-box;
       background: var(--vscode-input-background);
       color: var(--vscode-input-foreground);
@@ -90,21 +92,22 @@ class BcFilterViewProvider {
       outline-offset: -1px;
     }
     .toggle-group {
-      margin-bottom: 16px;
+      margin-bottom: 8px;
     }
     .toggle-buttons {
       display: flex;
-      gap: 8px;
-      margin-top: 8px;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 4px;
     }
     .toggle-btn {
-      flex: 1;
-      padding: 6px 12px;
+      flex: 0 0 auto;
+      padding: 4px 4px;
       border: 1px solid var(--vscode-button-border);
       cursor: pointer;
       text-align: center;
       border-radius: 3px;
-      font-size: 12px;
+      font-size: 11px;
       transition: all 0.2s;
     }
     .toggle-btn.active {
@@ -190,7 +193,7 @@ class BcFilterViewProvider {
     }
     .band-mode-btn {
       flex: 1;
-      padding: 4px 8px;
+      padding: 4px 4px;
       border: 1px solid var(--vscode-button-border);
       cursor: pointer;
       text-align: center;
@@ -202,6 +205,21 @@ class BcFilterViewProvider {
     .band-mode-btn.active {
       background: var(--vscode-button-background);
       color: var(--vscode-button-foreground);
+    }
+    .inline-filter-row {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+      margin-top: 6px;
+    }
+    .inline-filter-row .band-mode-btn {
+      flex: 0 0 auto;
+      padding: 4px 6px;
+    }
+    .inline-filter-row input[type="number"] {
+      width: 50px;
+      flex: 0 0 50px;
+      padding: 4px 6px;
     }
     .button-group {
       display: flex;
@@ -258,19 +276,20 @@ class BcFilterViewProvider {
 
   <div class="filter-group">
     <label>Band Numbers:</label>
+    <div class="inline-filter-row">
+      <div class="band-mode-btn" id="bandModeAnyOf" title="BC contains at least one of the listed bands">Any of</div>
+      <div class="band-mode-btn active" id="bandModeAtLeast" title="BC contains all listed bands (and possibly more)">At Least</div>
+      <div class="band-mode-btn" id="bandModeOnly" title="BC contains only bands from this list (no other bands)">Only</div>
+    </div>
     <div class="band-chips" id="filterBandChips"></div>
     <div class="band-input-container">
       <input type="text" id="filterBandInput" placeholder="Type band number (e.g., n78)" />
       <div class="band-autocomplete" id="filterBandAutocomplete"></div>
     </div>
-    <div class="band-mode-toggle">
-      <div class="band-mode-btn" id="bandModeOnly">Only</div>
-      <div class="band-mode-btn active" id="bandModeAtLeast">At Least</div>
-    </div>
   </div>
 
   <div class="filter-group">
-    <label>UL Notes:</label>
+    <label title="Show only configurations that contain at least one of the listed UL notes.">UL Notes:</label>
     <div class="band-chips" id="filterUlNotesChips"></div>
     <div class="band-input-container">
       <input type="text" id="filterUlNotesInput" placeholder="Type UL note (e.g., pc2)" />
@@ -279,7 +298,7 @@ class BcFilterViewProvider {
   </div>
 
   <div class="filter-group">
-    <label>DL Notes:</label>
+    <label title="Show only configurations that contain at least one of the listed DL notes.">DL Notes:</label>
     <div class="band-chips" id="filterDlNotesChips"></div>
     <div class="band-input-container">
       <input type="text" id="filterDlNotesInput" placeholder="Type DL note (e.g., intraReq)" />
@@ -289,22 +308,35 @@ class BcFilterViewProvider {
 
   <div class="filter-group">
     <label>Number of Carriers:</label>
-    <input type="number" id="filterCarriers" placeholder="e.g., 2" min="1" />
-    <div class="band-mode-toggle" style="margin-top: 6px;">
-      <div class="band-mode-btn active" id="carrierModeExactly">Exactly</div>
-      <div class="band-mode-btn" id="carrierModeAtLeast">At Least</div>
-      <div class="band-mode-btn" id="carrierModeUpTo">Up To</div>
+    <div class="inline-filter-row">
+      <div class="band-mode-btn active" id="carrierModeExactly" title="BC has exactly this many carriers">Exactly</div>
+      <div class="band-mode-btn" id="carrierModeAtLeast" title="BC has at least this many carriers">At Least</div>
+      <div class="band-mode-btn" id="carrierModeUpTo" title="BC has at most this many carriers">Up To</div>
+      <input type="number" id="filterCarriers" placeholder="-" min="1" />
+    </div>
+  </div>
+
+  <div class="filter-group">
+    <label>Number of Bands:</label>
+    <div class="inline-filter-row">
+      <div class="band-mode-btn active" id="numBandsModeExactly" title="BC has exactly this many distinct bands">Exactly</div>
+      <div class="band-mode-btn" id="numBandsModeAtLeast" title="BC has at least this many distinct bands">At Least</div>
+      <div class="band-mode-btn" id="numBandsModeUpTo" title="BC has at most this many distinct bands">Up To</div>
+      <input type="number" id="filterNumBands" placeholder="-" min="1" />
     </div>
   </div>
 
   <div class="toggle-group">
     <label>Properties:</label>
     <div class="toggle-buttons">
-      <div class="toggle-btn" id="propIntraBand" data-prop="intraBand">Intra</div>
-      <div class="toggle-btn" id="propFr1" data-prop="fr1">FR1</div>
-      <div class="toggle-btn" id="propFr2" data-prop="fr2">FR2</div>
-      <div class="toggle-btn" id="propNR" data-prop="nr">NR</div>
-      <div class="toggle-btn" id="propSUL" data-prop="sul">SUL</div>
+      <div class="toggle-btn active" id="propIntraBand" data-prop="intraBand" title="Single-band BCs">Intra</div>
+      <div class="toggle-btn active" id="propInterBand" data-prop="interBand" title="Multi-band BCs">Inter</div>
+      <div class="toggle-btn active" id="propFr1" data-prop="fr1" title="Show BCs with FR1">FR1</div>
+      <div class="toggle-btn active" id="propFr2" data-prop="fr2" title="Show BCs with FR2">FR2</div>
+      <div class="toggle-btn active" id="propCont" data-prop="cont" title="Intra-band BCs">Cont</div>
+      <div class="toggle-btn active" id="propNonCont" data-prop="nonCont" title="Inter-band BCs">Non-C</div>
+      <div class="toggle-btn" id="propNR" data-prop="nr" title="NR only (no EUTRA components)">NR only</div>
+      <div class="toggle-btn active" id="propSUL" data-prop="sul" title="Include SUL configurations">SUL</div>
     </div>
   </div>
 
@@ -326,23 +358,29 @@ class BcFilterViewProvider {
     const filterDlNotesInput = document.getElementById('filterDlNotesInput');
     const filterDlNotesChips = document.getElementById('filterDlNotesChips');
     const filterDlNotesAutocomplete = document.getElementById('filterDlNotesAutocomplete');
-    const bandModeOnly = document.getElementById('bandModeOnly');
+    const bandModeAnyOf = document.getElementById('bandModeAnyOf');
     const bandModeAtLeast = document.getElementById('bandModeAtLeast');
+    const bandModeOnly = document.getElementById('bandModeOnly');
     const filterCarriersInput = document.getElementById('filterCarriers');
     const carrierModeExactly = document.getElementById('carrierModeExactly');
     const carrierModeAtLeast = document.getElementById('carrierModeAtLeast');
     const carrierModeUpTo = document.getElementById('carrierModeUpTo');
+    const filterNumBandsInput = document.getElementById('filterNumBands');
+    const numBandsModeExactly = document.getElementById('numBandsModeExactly');
+    const numBandsModeAtLeast = document.getElementById('numBandsModeAtLeast');
+    const numBandsModeUpTo = document.getElementById('numBandsModeUpTo');
     const actionFilterBtn = document.getElementById('actionFilterBtn');
     const actionClearBtn = document.getElementById('actionClearBtn');
 
     let typeState = { CA: true, DC: false, Bands: true };
-    let propState = { intraBand: false, fr1: false, fr2: false, nr: false, sul: false };
+    let propState = { intraBand: true, interBand: true, fr1: true, fr2: true, cont: true, nonCont: true, nr: false, sul: true };
     let modifiedOnly = false;
     let selectedBands = [];
     let selectedUlNotes = [];
     let selectedDlNotes = [];
     let bandsMode = 'atLeast';
     let carriersMode = 'exactly';
+    let numBandsMode = 'exactly';
     let availableBands = [];
     let availableUlNotes = ['fLim3450_3700', 'n5A-n8A_restrictions', 'n26_DualPA', 'pc1p5', 'pc1p5_2tx', 'pc1p5_3tx', 'pc2', 'pc2_2tx', 'pc2_3tx', 'Rel-18_800MHzUL', 'ul_n5', 'ul_n26_opt'];
     let availableDlNotes = ['intraReq', 'lowBandSwitchingAllowed', 'lowBandSwitchingOnly', 'n7_n38', 'n28_703U_758D', 'n28_718U_773D', 'n77_RxTx', 'noSimRxTx', 'noSimRxTx_noRxSensitivitySection', 'psdi_6dB', 'psdi_6dB_r19', 'Rel-18_1600MHzDL', 'ul_n28'];
@@ -352,8 +390,11 @@ class BcFilterViewProvider {
     const typeToggleDC = document.getElementById('typeToggleDC');
     const typeToggleBands = document.getElementById('typeToggleBands');
     const propIntraBand = document.getElementById('propIntraBand');
+    const propInterBand = document.getElementById('propInterBand');
     const propFr1 = document.getElementById('propFr1');
     const propFr2 = document.getElementById('propFr2');
+    const propCont = document.getElementById('propCont');
+    const propNonCont = document.getElementById('propNonCont');
     const propNR = document.getElementById('propNR');
     const propSUL = document.getElementById('propSUL');
     const gitModifiedOnly = document.getElementById('gitModifiedOnly');
@@ -391,8 +432,11 @@ class BcFilterViewProvider {
     }
 
     propIntraBand.addEventListener('click', () => handlePropToggle(propIntraBand, 'intraBand'));
+    propInterBand.addEventListener('click', () => handlePropToggle(propInterBand, 'interBand'));
     propFr1.addEventListener('click', () => handlePropToggle(propFr1, 'fr1'));
     propFr2.addEventListener('click', () => handlePropToggle(propFr2, 'fr2'));
+    propCont.addEventListener('click', () => handlePropToggle(propCont, 'cont'));
+    propNonCont.addEventListener('click', () => handlePropToggle(propNonCont, 'nonCont'));
     propNR.addEventListener('click', () => handlePropToggle(propNR, 'nr'));
     propSUL.addEventListener('click', () => handlePropToggle(propSUL, 'sul'));
 
@@ -689,18 +733,28 @@ class BcFilterViewProvider {
       setTimeout(() => filterDlNotesAutocomplete.classList.remove('show'), 200);
     });
 
-    bandModeOnly.addEventListener('click', () => {
-      bandsMode = 'only';
-      bandModeOnly.classList.add('active');
+    bandModeAnyOf.addEventListener('click', () => {
+      bandsMode = 'anyOf';
+      bandModeAnyOf.classList.add('active');
       bandModeAtLeast.classList.remove('active');
+      bandModeOnly.classList.remove('active');
       if (selectedBands.length > 0) applyFilter();
     });
 
     bandModeAtLeast.addEventListener('click', () => {
       bandsMode = 'atLeast';
       bandModeAtLeast.classList.add('active');
+      bandModeAnyOf.classList.remove('active');
       bandModeOnly.classList.remove('active');
-      applyFilter();
+      if (selectedBands.length > 0) applyFilter();
+    });
+
+    bandModeOnly.addEventListener('click', () => {
+      bandsMode = 'only';
+      bandModeOnly.classList.add('active');
+      bandModeAnyOf.classList.remove('active');
+      bandModeAtLeast.classList.remove('active');
+      if (selectedBands.length > 0) applyFilter();
     });
 
     carrierModeExactly.addEventListener('click', () => {
@@ -727,6 +781,30 @@ class BcFilterViewProvider {
       if (filterCarriersInput.value) applyFilter();
     });
 
+    numBandsModeExactly.addEventListener('click', () => {
+      numBandsMode = 'exactly';
+      numBandsModeExactly.classList.add('active');
+      numBandsModeAtLeast.classList.remove('active');
+      numBandsModeUpTo.classList.remove('active');
+      if (filterNumBandsInput.value) applyFilter();
+    });
+
+    numBandsModeAtLeast.addEventListener('click', () => {
+      numBandsMode = 'atLeast';
+      numBandsModeAtLeast.classList.add('active');
+      numBandsModeExactly.classList.remove('active');
+      numBandsModeUpTo.classList.remove('active');
+      if (filterNumBandsInput.value) applyFilter();
+    });
+
+    numBandsModeUpTo.addEventListener('click', () => {
+      numBandsMode = 'upTo';
+      numBandsModeUpTo.classList.add('active');
+      numBandsModeExactly.classList.remove('active');
+      numBandsModeAtLeast.classList.remove('active');
+      if (filterNumBandsInput.value) applyFilter();
+    });
+
     function applyFilter() {
       const activeProps = Object.keys(propState).filter(k => propState[k]);
       vscode.postMessage({
@@ -736,6 +814,8 @@ class BcFilterViewProvider {
         bandsMode: bandsMode,
         carriers: filterCarriersInput.value,
         carriersMode: carriersMode,
+        numBands: filterNumBandsInput.value,
+        numBandsMode: numBandsMode,
         properties: activeProps,
         modifiedOnly: modifiedOnly,
         ulNotes: selectedUlNotes,
@@ -751,18 +831,27 @@ class BcFilterViewProvider {
       selectedDlNotes = [];
       bandsMode = 'atLeast';
       bandModeAtLeast.classList.add('active');
+      bandModeAnyOf.classList.remove('active');
       bandModeOnly.classList.remove('active');
       carriersMode = 'exactly';
       carrierModeExactly.classList.add('active');
       carrierModeAtLeast.classList.remove('active');
       carrierModeUpTo.classList.remove('active');
       filterCarriersInput.value = '';
-      propState = { intraBand: false, fr1: false, fr2: false, nr: false, sul: false };
-      updateToggleState(propIntraBand, false);
-      updateToggleState(propFr1, false);
-      updateToggleState(propFr2, false);
+      numBandsMode = 'exactly';
+      numBandsModeExactly.classList.add('active');
+      numBandsModeAtLeast.classList.remove('active');
+      numBandsModeUpTo.classList.remove('active');
+      filterNumBandsInput.value = '';
+      propState = { intraBand: true, interBand: true, fr1: true, fr2: true, cont: true, nonCont: true, nr: false, sul: true };
+      updateToggleState(propIntraBand, true);
+      updateToggleState(propInterBand, true);
+      updateToggleState(propFr1, true);
+      updateToggleState(propFr2, true);
+      updateToggleState(propCont, true);
+      updateToggleState(propNonCont, true);
       updateToggleState(propNR, false);
-      updateToggleState(propSUL, false);
+      updateToggleState(propSUL, true);
       modifiedOnly = false;
       updateToggleState(gitModifiedOnly, false);
       renderBandChips();
@@ -775,6 +864,9 @@ class BcFilterViewProvider {
       if (e.key === 'Enter') applyFilter();
     });
     filterCarriersInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') applyFilter();
+    });
+    filterNumBandsInput.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') applyFilter();
     });
   </script>

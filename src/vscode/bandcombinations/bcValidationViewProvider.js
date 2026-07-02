@@ -318,8 +318,7 @@ class BcValidationViewProvider {
 </head>
 <body>
   <div class="section">
-    <div class="section-title">Validation Scope</div>
-    <select id="scope">
+    <select id="scope" title="Which configuration types to validate">
       <option value="bands">Bands only</option>
       <option value="bands+ca">Bands + CA</option>
       <option value="bands+ca+dc" selected>Bands + CA + DC</option>
@@ -327,12 +326,11 @@ class BcValidationViewProvider {
   </div>
 
   <div class="section">
-    <div class="section-title">Validation Types</div>
-    <label>
+    <label title="Validate data consistency and cross-references">
       <input type="checkbox" id="contentValidation" checked>
       Content validation
     </label>
-    <label>
+    <label title="Validate JSON files against their JSON schemas">
       <input type="checkbox" id="schemaValidation" checked>
       Schema validation
     </label>

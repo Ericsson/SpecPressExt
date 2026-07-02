@@ -22,6 +22,8 @@ class BcTreeProvider {
     this.filterBandsMode = 'atLeast' // 'only' or 'atLeast'
     this.filterCarriers = ''
     this.filterCarriersMode = 'exactly' // 'exactly', 'atLeast', or 'upTo'
+    this.filterNumBands = ''
+    this.filterNumBandsMode = 'exactly' // 'exactly', 'atLeast', or 'upTo'
     this.filterProperties = [] // Array of property names: 'intraBand', 'fr1', 'fr2', 'nr', 'sul'
     this.filterModifiedOnly = false // Show only git-modified files
     this.filterUlNotes = [] // Array of UL note keys
@@ -49,7 +51,7 @@ class BcTreeProvider {
     this.updateTreeTitle()
   }
 
-  async setFilters(bcId, bands, bandsMode, carriers, carriersMode, properties, modifiedOnly, ulNotes, dlNotes) {
+  async setFilters(bcId, bands, bandsMode, carriers, carriersMode, properties, modifiedOnly, ulNotes, dlNotes, numBands, numBandsMode) {
     this.filterBcId = (bcId || '').toLowerCase()
     this.filterBands = bands || []
     this.filterBandsMode = bandsMode || 'atLeast'
@@ -59,6 +61,8 @@ class BcTreeProvider {
     this.filterModifiedOnly = modifiedOnly || false
     this.filterUlNotes = ulNotes || []
     this.filterDlNotes = dlNotes || []
+    this.filterNumBands = numBands || ''
+    this.filterNumBandsMode = numBandsMode || 'exactly'
     this.refresh()
   }
 
@@ -112,11 +116,13 @@ class BcTreeProvider {
         const bandNumbers = this.extractBandNumbers(bc.bcId)
 
         if (this.filterBandsMode === 'only') {
-          // Only mode: BC must contain exactly these bands
-          if (bandNumbers.length !== this.filterBands.length) {
+          // Only mode: BC contains one or more of these bands and no other bands
+          if (!bandNumbers.every(b => this.filterBands.includes(b))) {
             return false
           }
-          if (!this.filterBands.every(fb => bandNumbers.includes(fb))) {
+        } else if (this.filterBandsMode === 'anyOf') {
+          // Any of mode: BC contains at least one of these bands
+          if (!this.filterBands.some(fb => bandNumbers.includes(fb))) {
             return false
           }
         } else {
@@ -143,24 +149,60 @@ class BcTreeProvider {
         }
       }
 
+      // Filter by number of bands
+      if (this.filterNumBands) {
+        const targetCount = parseInt(this.filterNumBands)
+        const bandCount = this.extractBandNumbers(bc.bcId).length
+
+        if (this.filterNumBandsMode === 'exactly') {
+          if (bandCount !== targetCount) return false
+        } else if (this.filterNumBandsMode === 'atLeast') {
+          if (bandCount < targetCount) return false
+        } else if (this.filterNumBandsMode === 'upTo') {
+          if (bandCount > targetCount) return false
+        }
+      }
+
       // Filter by properties (using BC_ID methods)
+      // Paired properties (intra/inter, fr1/fr2, cont/nonCont) use OR logic within the pair.
+      // Unpaired properties (nr, sul) require AND.
       if (this.filterProperties.length > 0 && BC_ID) {
         try {
           const bcIdObj = new BC_ID(bc.bcId)
+          const props = this.filterProperties
 
-          for (const prop of this.filterProperties) {
-            let matches = false
-
-            if (prop === 'intraBand' && bcIdObj.isIntraBand()) matches = true
-            else if (prop === 'fr1' && bcIdObj.isFr1()) matches = true
-            else if (prop === 'fr2' && bcIdObj.isFr2()) matches = true
-            else if (prop === 'nr' && bcIdObj.isNR()) matches = true
-            else if (prop === 'sul' && bcIdObj.isSUL()) matches = true
-
-            if (!matches) return false
+          // Intra/Inter pair: skip only when both are active (show all)
+          const hasIntra = props.includes('intraBand')
+          const hasInter = props.includes('interBand')
+          if (!hasIntra || !hasInter) {
+            const isIntra = bcIdObj.isIntraBand()
+            if (!(hasIntra && isIntra) && !(hasInter && !isIntra)) return false
           }
+
+          // FR1/FR2 pair
+          const hasFr1 = props.includes('fr1')
+          const hasFr2 = props.includes('fr2')
+          if (!hasFr1 || !hasFr2) {
+            const isFr1 = bcIdObj.isFr1()
+            const isFr2 = bcIdObj.isFr2()
+            if (!(hasFr1 && isFr1) && !(hasFr2 && isFr2)) return false
+          }
+
+          // Cont/NonCont pair (only applies to intra-band BCs)
+          const hasCont = props.includes('cont')
+          const hasNonCont = props.includes('nonCont')
+          if (!hasCont || !hasNonCont) {
+            const isCont = this.isContiguous(bcIdObj)
+            const isNonCont = this.isNonContiguous(bcIdObj)
+            if (!(hasCont && isCont) && !(hasNonCont && isNonCont)) return false
+          }
+
+          // NR only: AND logic — when active, only show NR BCs
+          if (props.includes('nr') && !bcIdObj.isNR()) return false
+
+          // SUL: when inactive, exclude SUL BCs
+          if (!props.includes('sul') && bcIdObj.isSUL()) return false
         } catch (e) {
-          // If BC_ID parsing fails, exclude this item when properties are filtered
           return false
         }
       }
@@ -204,6 +246,20 @@ class BcTreeProvider {
 
       return true
     })
+  }
+
+  isContiguous(bcIdObj) {
+    if (!bcIdObj.isIntraBand()) return false
+    for (const [, bwcid] of bcIdObj.getBwcIDsPerBand()) {
+      if (bwcid && typeof bwcid.getNrofNonContiguousCarriers === 'function') {
+        return bwcid.getNrofNonContiguousCarriers() === 1
+      }
+    }
+    return true
+  }
+
+  isNonContiguous(bcIdObj) {
+    return !this.isContiguous(bcIdObj)
   }
 
   getCarrierCountUsingBcId(bcId, BC_ID) {
@@ -439,7 +495,7 @@ class BcTreeProvider {
           bc,
           'bc'
         )
-        item.description = path.basename(bc.path)
+        item.description = ''
         item.tooltip = bc.path
         // Different icon for band files vs CA/DC configurations
         item.iconPath = bc.isBand

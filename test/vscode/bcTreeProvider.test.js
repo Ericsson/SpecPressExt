@@ -289,22 +289,27 @@ testAsync('applyFilters filters by band numbers', async () => {
   assert.ok(filtered.some(f => f.bcId === 'CA_n1A'))
 })
 
-testAsync('applyFilters "only" mode requires exact band match', async () => {
+testAsync('applyFilters "only" mode requires all BC bands to be in filter list', async () => {
   resetMocks()
   const config = new ConfigLoader()
   const provider = new BcTreeProvider(config, {})
   
   const files = [
     { bcId: 'CA_n1A-n78C', path: '/test/CA_n1A-n78C.json' },
-    { bcId: 'CA_n1A', path: '/test/CA_n1A.json' }
+    { bcId: 'CA_n1A', path: '/test/CA_n1A.json' },
+    { bcId: 'CA_n3A-n77A', path: '/test/CA_n3A-n77A.json' }
   ]
   
-  provider.filterBands = ['n1']
+  provider.filterBands = ['n1', 'n78']
   provider.filterBandsMode = 'only'
   const filtered = await provider.applyFilters(files)
   
-  assert.strictEqual(filtered.length, 1)
-  assert.strictEqual(filtered[0].bcId, 'CA_n1A')
+  // CA_n1A-n78C matches (both bands in filter list)
+  // CA_n1A matches (n1 is in filter list, no other bands)
+  // CA_n3A-n77A excluded (n3 and n77 not in filter list)
+  assert.strictEqual(filtered.length, 2)
+  assert.ok(filtered.some(f => f.bcId === 'CA_n1A-n78C'))
+  assert.ok(filtered.some(f => f.bcId === 'CA_n1A'))
 })
 
 test('getAllBands returns unique band list', () => {
