@@ -23,6 +23,7 @@ const { validateCommentPositions } = require('./vscode/commenting/validateCommen
 const { selectCommentInTree, showCommentInSidebar } = require('./vscode/commenting/commentHelpers')
 const { extractSnippet } = require('./vscode/commenting/snippetExtractor')
 const { logger } = require('./vscode/logger')
+const { initializeBandCombinationPane } = require('./vscode/bandcombinations/bcInitializer')
 
 const config = new ConfigLoader()
 const state = new StateManager()
@@ -217,6 +218,9 @@ function activate(context) {
       { supportsMultipleEditorsPerDocument: false }
     )
   )
+
+  // Initialize Band Combination pane
+  initializeBandCombinationPane(context, state, config)
 
   context.subscriptions.push(
     vscode.commands.registerCommand('specpress.preview', () => {
@@ -733,6 +737,11 @@ function activate(context) {
         if (e.affectsConfiguration('specpress.enableDebugLogging')) {
           const enableLogging = config.raw.get('enableDebugLogging', false)
           logger.setEnabled(enableLogging)
+        }
+        
+        // Refresh BC tree if bandCombinationFolder changed
+        if (e.affectsConfiguration('specpress.bandCombinationFolder')) {
+          // BC tree will refresh automatically via its own config change listener
         }
       }
     })

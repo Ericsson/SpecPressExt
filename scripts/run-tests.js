@@ -6,7 +6,10 @@ const testDir = path.join(__dirname, '..', 'test')
 const quick = process.argv.includes('--quick')
 
 /** Test files skipped in --quick mode (e.g. slow DOCX tests). */
-const SLOW_TESTS = new Set(['paragraphClassification.test.js'])
+const SLOW_TESTS = new Set([
+  'paragraphClassification.test.js',
+  'docx-diff-e2e.test.js'
+])
 
 function findTests(dir) {
   const results = []

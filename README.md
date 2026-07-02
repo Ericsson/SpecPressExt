@@ -18,6 +18,7 @@ The extension is a thin VS Code integration layer on top of the [specpress](http
 - **CR cover page** - [Auto-generated CR cover page](https://github.com/Ericsson/specpress/blob/main/documentation/CR-Cover-Page.md) based on meta data provided in a JSON file. It may be included instead of the specification front page when exporting to HTML or DOCX.
 - **JsonTable Editor** - A WYSIWYG table editor for JsonTable files (JSON-defined tables used by specpress). Double-click cells to edit markdown content, drag to reorder rows/columns, merge cells via context menu, and see rendered output in real time.
 - **Commenting** - Use the commenting pane to add, read, answer and resolve comments on specification source files. The comments are stored as JSON files that may be stored and committed in the git repository, too. See the [detailed commenting documentation](https://github.com/Ericsson/SpecPressExt/blob/main/documentation/Commenting%20documents.md) for workflows and configuration.
+- **Band Combinations** - A dedicated side pane for browsing, filtering, validating, and previewing RAN4 band combination data (TS 38.101). Supports CA, DC, and band files with rich filtering by band numbers, carriers, properties, and notes.
 
 ## 1.2 Installation
 
@@ -102,6 +103,7 @@ The following settings can be configured in VS-Code's workspace or user settings
 | `specpress.cssFile` | string | SpecPress default | Path to a custom CSS file for HTML preview and export, relative to workspace root. It is recommended not to set this parameter and rather rely on the default CSS provided with the SpecPressExtension. |
 | `specpress.mermaidConfigFile` | string | SpecPress default | Path to a mermaid configuration JSON file, relative to workspace root. It is recommended not to set this parameter and rather rely on the default configuration provided with the SpecPressExtension. |
 | `specpress.enableDebugLogging` | boolean | `false` | Enable debug logging to temp file for troubleshooting. Useful when running in Extension Development Host. |
+| `specpress.bandCombinationFolder` | string | `""` | Path to the folder containing RAN4 band combination JSON files (CA_*.json, DC_*.json, n*.json). Relative to workspace root or absolute. Required for the Band Combinations side pane. |
 
 ## 1.5 Usage
 
@@ -240,6 +242,30 @@ When exporting to DOCX, mermaid diagrams are rendered to SVG using a hidden VS-C
 
 The rendered SVGs are cached on disk (in a `cached/` directory next to the spec root) so that unchanged diagrams are never re-rendered. For full documentation of the SVG caching mechanism (cache location, cache keys, cleanup), see the [specpress README](https://github.com/Ericsson/specpress#mermaid-diagram-caching).
 
+### 1.5.11 Band Combinations
+
+The extension provides a dedicated side pane for working with RAN4 band combination data (TS 38.101). It allows browsing, filtering, validating, and previewing band combination JSON files directly in VS Code.
+
+**Configuration:**
+
+To enable the Band Combinations pane, configure the `specpress.bandCombinationFolder` setting to point to the folder containing your band combination JSON files:
+
+```json
+{
+  "specpress.bandCombinationFolder": "path/to/your/bc-data"
+}
+```
+
+The folder should contain `CA_*.json`, `DC_*.json`, and `n*.json` files as described in the [specpress Band Combinations documentation](https://github.com/Ericsson/specpress/blob/main/documentation/Band-Combinations.md).
+
+**Features:**
+
+- **Tree view** — Lists all band combinations sorted by BC-ID. Toggle between CA, DC, and Band file types.
+- **Filter pane** — Filter by band numbers (Any of / At Least / Only), number of carriers, number of bands, properties (Intra/Inter, FR1/FR2, Contiguous/Non-contiguous, NR only, SUL), UL/DL notes, and git-modified status.
+- **Preview** — Click a BC entry to see a rendered preview of its data.
+- **Validation** — Run schema and content validation against the loaded data, with results written to a log file.
+- **Normalize** — Right-click a JSON file to rewrite it with canonical key ordering and consistent formatting.
+
 ## 1.6 Development and Testing
 
 ### 1.6.1 Getting the source code
@@ -275,7 +301,15 @@ All tests run with Node.js and do not require VS-Code. After `npm install`, run 
 npm test
 ```
 
-The extension-specific tests are in `test/vscode/` and cover the ConfigLoader, StateManager, and JsonTable editor logic.
+The full test suite includes a DOCX DIFF end-to-end test that requires Microsoft Word. If Word is not installed, this test is automatically skipped with a message.
+
+For faster testing during development, use the quick mode which skips slow tests:
+
+```bash
+npm run test:quick
+```
+
+The extension-specific tests are in `test/vscode/` and cover the ConfigLoader, StateManager, JsonTable editor logic, and Band Combinations functionality.
 
 The bulk of the conversion tests (markdown-to-HTML, markdown-to-DOCX, section numbering, ASN.1, etc.) live in the [specpress](https://github.com/Ericsson/specpress) library.
 
