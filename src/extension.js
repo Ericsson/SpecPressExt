@@ -24,6 +24,9 @@ const { selectCommentInTree, showCommentInSidebar } = require('./vscode/commenti
 const { extractSnippet } = require('./vscode/commenting/snippetExtractor')
 const { logger } = require('./vscode/logger')
 const { initializeBandCombinationPane } = require('./vscode/bandcombinations/bcInitializer')
+const { SectionDecorationProvider } = require('./vscode/sectionDecorationProvider')
+const { SectionSymbolProvider } = require('./vscode/sectionSymbolProvider')
+const { SectionHoverProvider } = require('./vscode/sectionHoverProvider')
 
 const config = new ConfigLoader()
 const state = new StateManager()
@@ -221,6 +224,30 @@ function activate(context) {
 
   // Initialize Band Combination pane
   initializeBandCombinationPane(context, state, config)
+
+  // Register section number tooltip decorations for the explorer
+  const sectionDecorationProvider = new SectionDecorationProvider(config)
+  context.subscriptions.push(
+    vscode.window.registerFileDecorationProvider(sectionDecorationProvider),
+    sectionDecorationProvider
+  )
+
+  // Register document symbol provider to show resolved headings in the Outline view
+  context.subscriptions.push(
+    vscode.languages.registerDocumentSymbolProvider(
+      { language: 'markdown' },
+      new SectionSymbolProvider(config),
+      { label: 'SpecPress' }
+    )
+  )
+
+  // Register hover provider to show resolved section headings on x-placeholder lines
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(
+      { language: 'markdown' },
+      new SectionHoverProvider(config)
+    )
+  )
 
   context.subscriptions.push(
     vscode.commands.registerCommand('specpress.preview', () => {
@@ -739,6 +766,12 @@ function activate(context) {
           logger.setEnabled(enableLogging)
         }
         
+        // Refresh section decorations if relevant settings changed
+        if (e.affectsConfiguration('specpress.deriveSectionNumbers') ||
+            e.affectsConfiguration('specpress.specificationRootPath')) {
+          sectionDecorationProvider.refresh()
+        }
+
         // Refresh BC tree if bandCombinationFolder changed
         if (e.affectsConfiguration('specpress.bandCombinationFolder')) {
           // BC tree will refresh automatically via its own config change listener

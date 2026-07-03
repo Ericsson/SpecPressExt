@@ -5,6 +5,15 @@ All notable changes to the SpecPress Extension for VS Code will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.5] - 2026-07-02
+
+### Added
+
+- **Section number decorations** - When `specpress.deriveSectionNumbers` is enabled, files and folders inside `specificationRootPath` show their derived section number and heading as a tooltip in the Explorer pane
+- **Outline view with resolved headings** - The VS Code Outline panel shows resolved section headings (e.g. `3.2 Abbreviations`) instead of raw x-placeholders (e.g. `x.x Abbreviations`) for files inside the spec root
+- **Hover tooltips for section headings** - Hovering over a heading line containing an x-placeholder in the markdown editor shows the resolved section heading (e.g. `§ 3.2 Abbreviations`)
+- **Hover tooltips for figure/table captions** - Hovering over a `Figure x.x-1:` or `Table x.x-1:` caption line shows the resolved caption with the derived section number
+
 ## [0.7.4] - 2025-07-02
 
 ### Added
@@ -146,6 +155,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic preview functionality
 - DOCX export support
 
+[0.7.5]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.1...v0.7.2
