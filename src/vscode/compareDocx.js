@@ -2,60 +2,25 @@ const vscode = require('vscode')
 const fs = require('fs')
 const path = require('path')
 const { execSync } = require('child_process')
-const { getRepoRoot } = require('specpress/lib/common/gitHelpers')
-const { collectFiles, concatenateFiles } = require('specpress/lib/common/specProcessor')
+const { getRepoRoot, extractFilesFromCommit, makeCachedFileResolver, makeCachedTextReader } = require('specpress/lib/common/gitHelpers')
+const { collectFiles, concatenateFiles, insertOmittedMarkers } = require('specpress/lib/common/specProcessor')
 const { MarkdownToDocxConverter } = require('specpress/lib/md2docx/md2docx')
 const { ensureMermaidBundle } = require('specpress/lib/md2docx/handlers/mermaidHandler')
-const { pickCommit, collectFilesFromUris, collectFilesFromCommitUris, extractFilesFromCommit, insertOmittedMarkers, makeMermaidRenderer, findWinword, formatExportTimestamp, showExportNotification, generateCRFilename } = require('./helpers')
+const { mergeDocxVersions, detectBackends } = require('specpress/lib/common/docxMerge')
+const { pickCommit, collectFilesFromUris, collectFilesFromCommitUris, makeMermaidRenderer, formatExportTimestamp, showExportNotification, generateCRFilename } = require('./helpers')
 const { selectCoverPage } = require('./coverPageSelector')
 
 const MAX_VERSIONS = 5
 const DEBUG_MODE = false // Set to false to clean up temp files
 
 /**
- * Creates a fileResolver from a pre-extracted cache.
- * Falls back to the local filesystem if the file isn't in the cache.
- */
-function makeCachedFileResolver(cache) {
-  const normPath = (p) => p.replace(/\\/g, '/').toLowerCase()
-  return (filePath) => {
-    if (cache.has(filePath)) return cache.get(filePath)
-    const target = normPath(filePath)
-    for (const [key, val] of cache) {
-      if (normPath(key) === target) return val
-    }
-    return fs.readFileSync(filePath)
-  }
-}
-
-/**
- * Creates a text file reader from a pre-extracted cache (for concatenateFiles).
- */
-function makeCachedTextReader(cache) {
-  const normPath = (p) => p.replace(/\\/g, '/').toLowerCase()
-  return (filePath) => {
-    if (cache.has(filePath)) {
-      const content = cache.get(filePath)
-      return Buffer.isBuffer(content) ? content.toString('utf8') : content
-    }
-    const target = normPath(filePath)
-    for (const [key, val] of cache) {
-      if (normPath(key) === target) {
-        return Buffer.isBuffer(val) ? val.toString('utf8') : val
-      }
-    }
-    return fs.readFileSync(filePath, 'utf8')
-  }
-}
-
-/**
  * Handles the DOCX comparison (diff) command with multi-version support.
  */
 async function compareDocx(state, config, context, uri, allUris) {
-  // Check for winword.exe
-  const winwordPath = findWinword()
-  if (!winwordPath) {
-    vscode.window.showErrorMessage('Microsoft Word (winword.exe) is not installed or not accessible.')
+  // Check for available merge backends
+  const backends = detectBackends()
+  if (!backends.word && !backends.libreoffice) {
+    vscode.window.showErrorMessage('No merge backend available. Install Microsoft Word (Windows) or LibreOffice.')
     return
   }
 
@@ -289,67 +254,20 @@ async function compareDocx(state, config, context, uri, allUris) {
           docxFiles.push(docxPath)
         }
 
-        // Build VBScript arguments: outputPath v1.docx v2.docx author2 v3.docx author3 ...
-        // Note: v1 is the baseline (no author), v2's changes get author2, v3's changes get author3, etc.
-        progress.report({ message: 'Starting Word comparison...' })
+        // Merge via specpress unified API
+        progress.report({ message: 'Starting document comparison...' })
 
-        const vbsPath = path.join(__dirname, '..', '..', 'scripts', 'merge-multi-version.vbs')
-        const vbsArgs = ['//nologo', vbsPath, outputPath]
-        for (let i = 0; i < versions.length; i++) {
-          vbsArgs.push(docxFiles[i])
-          if (i > 0) {
-            vbsArgs.push(versions[i].authorName)
-          }
-        }
+        const baseDocx = docxFiles[0]
+        const revisions = versions.slice(1).map((v, i) => ({
+          docxPath: docxFiles[i + 1],
+          authorName: v.authorName
+        }))
 
-        try {
-          const { spawn } = require('child_process')
-          if (DEBUG_MODE) vbsArgs.push('debug')
-          
-          const vbsProcess = spawn('cscript', vbsArgs, {
-            windowsHide: true
-          })
-
-          let output = ''
-          let errorOutput = ''
-
-          vbsProcess.stdout.on('data', (data) => {
-            const text = data.toString().trim()
-            output += text + '\n'
-            // Show progress messages in VS Code
-            if (text.includes('Comparing')) {
-              progress.report({ message: text })
-            }
-          })
-
-          vbsProcess.stderr.on('data', (data) => {
-            errorOutput += data.toString()
-          })
-
-          await new Promise((resolve, reject) => {
-            vbsProcess.on('close', (code) => {
-              if (code !== 0) {
-                reject(new Error(errorOutput || output || `VBScript exited with code ${code}`))
-              } else if (!output.includes('Success')) {
-                reject(new Error(output || 'Word comparison failed'))
-              } else {
-                resolve()
-              }
-            })
-
-            vbsProcess.on('error', (err) => {
-              reject(new Error(`Failed to start VBScript: ${err.message}`))
-            })
-
-            // Timeout after 5 minutes
-            setTimeout(() => {
-              vbsProcess.kill()
-              reject(new Error('Word comparison timed out after 5 minutes'))
-            }, 300000)
-          })
-        } catch (e) {
-          throw new Error(`Word comparison failed: ${e.message}`)
-        }
+        await mergeDocxVersions(baseDocx, revisions, outputPath, {
+          backend: 'auto',
+          debug: DEBUG_MODE,
+          onProgress: (msg) => progress.report({ message: msg })
+        })
 
         // Clean up temp DOCX files (unless debug mode is enabled)
         if (!DEBUG_MODE) {
