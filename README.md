@@ -204,7 +204,7 @@ The "**Compare as DOCX**" function generates a tracked-changes comparison betwee
 
 For detailed documentation including version selection, author naming, filename generation, testing, and troubleshooting, see [DOCX DIFF documentation](documentation/DOCX-DIFF.md).
 
-MS-Word must be installed for this function to work.
+Microsoft Word or LibreOffice must be installed for this function to work.
 
 ### 1.5.7 Change tracking preview
 
