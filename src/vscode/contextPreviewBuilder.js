@@ -73,12 +73,13 @@ function buildContextPreview(state, config, ensureHandler) {
   }
 
   const baseDir = path.dirname(currentFilePath)
-  let html = state.handler.renderMarkdown(concatenated, baseDir, null, specRoot, isAtSpecStart, crCoverPageData)
+  const frontPageData = isAtSpecStart ? config.loadFrontPageData() : null
+  let html = state.handler.renderMarkdown(concatenated, baseDir, null, specRoot, frontPageData, crCoverPageData)
 
   html = applyDiff(state, state.handler, config, html, concatenated, null, contextFiles, {
     baseDir,
     specRoot,
-    includeFrontPage: isAtSpecStart,
+    frontPageData,
     crCoverPageData
   })
 

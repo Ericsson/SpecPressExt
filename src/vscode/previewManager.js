@@ -2,7 +2,6 @@ const vscode = require('vscode')
 const path = require('path')
 const fs = require('fs')
 const { Md2Html } = require('specpress/lib/md2html/md2html')
-const { buildFrontPageHtml } = require('specpress/lib/md2html/frontPage')
 const { renderCRCoverPageHTML } = require('specpress/lib/md2html/crCoverPageRenderer')
 const { buildFileContext, buildContextPreview } = require('./contextPreviewBuilder')
 const { previewMultiple } = require('./multiFilePreviewBuilder')
@@ -42,7 +41,7 @@ class PreviewManager {
     this.state.handler = new Md2Html({
       css: this.config.loadCss(this.extensionDir),
       mermaidConfig: this.config.loadMermaidConfig(),
-      frontPageHtml: buildFrontPageHtml(this.config.loadFrontPageData()),
+      mscgenConfig: this.config.loadMscgenConfig ? this.config.loadMscgenConfig() : null,
       customRenderers: this.config.customRenderers,
       resolveImageUri: (absPath) => this.state.panel ? this.state.panel.webview.asWebviewUri(vscode.Uri.file(absPath)).toString() : absPath,
       extraHeadContent: scrollSyncScript,
@@ -212,11 +211,14 @@ class PreviewManager {
       const resourceRoot = this.config.findSpecRootFor(editor.document.uri.fsPath)
         || this.config.wsRoot
         || path.dirname(editor.document.uri.fsPath)
+      const cachedDir = path.join(path.dirname(resourceRoot), 'cached')
+      const resourceRoots = [vscode.Uri.file(resourceRoot)]
+      if (fs.existsSync(cachedDir)) resourceRoots.push(vscode.Uri.file(cachedDir))
       state.panel = vscode.window.createWebviewPanel('specpressPreview', 'Preview',
         vscode.ViewColumn.Beside, {
           enableScripts: true,
           retainContextWhenHidden: true,
-          localResourceRoots: [vscode.Uri.file(resourceRoot)]
+          localResourceRoots: resourceRoots
         })
       state.panel.onDidDispose(() => state.onPanelDisposed())
       this.registerMessageHandler()

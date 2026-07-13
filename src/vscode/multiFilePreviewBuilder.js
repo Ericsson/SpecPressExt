@@ -1,5 +1,6 @@
 const vscode = require('vscode')
 const path = require('path')
+const fs = require('fs')
 const { buildFrontPageHtml } = require('specpress/lib/md2html/frontPage')
 const { collectFiles, concatenateFiles } = require('specpress/lib/common/specProcessor')
 const { getFileFromCommit, collectFilesFromCommit } = require('specpress/lib/common/gitHelpers')
@@ -114,16 +115,20 @@ async function previewMultiple(state, config, ensureHandler, registerMessageHand
         const resourceRoot = (files.length > 0 ? config.findSpecRootFor(files[0]) : '')
           || config.wsRoot
           || baseDir
+        const cachedDir = path.join(path.dirname(resourceRoot), 'cached')
+        const resourceRoots = [vscode.Uri.file(resourceRoot)]
+        if (fs.existsSync(cachedDir)) resourceRoots.push(vscode.Uri.file(cachedDir))
         state.panel = vscode.window.createWebviewPanel('specpressPreview', 'Multiple Files Preview',
-          vscode.ViewColumn.Beside, { enableScripts: true, localResourceRoots: [vscode.Uri.file(resourceRoot)] })
+          vscode.ViewColumn.Beside, { enableScripts: true, localResourceRoots: resourceRoots })
         state.panel.onDidDispose(() => state.onPanelDisposed())
         registerMessageHandler()
       }
 
       state.panel.title = commitRef ? `Preview (${commitRef.shortHash})` : (state.changeTrackingCommit ? 'Preview (changes)' : 'Multiple Files Preview')
-      let html = state.handler.renderMarkdown(processedContent, baseDir, null, specRoot, state.isSpecRootPreview, crCoverPageData)
+      const frontPageData = state.isSpecRootPreview ? config.loadFrontPageData() : null
+      let html = state.handler.renderMarkdown(processedContent, baseDir, null, specRoot, frontPageData, crCoverPageData)
       if (!commitRef) {
-        html = applyDiff(state, state.handler, config, html, processedContent, null, files, { baseDir, specRoot, includeFrontPage: state.isSpecRootPreview, crCoverPageData })
+        html = applyDiff(state, state.handler, config, html, processedContent, null, files, { baseDir, specRoot, frontPageData, crCoverPageData })
       }
       state.panel.webview.html = html
     } catch (error) {

@@ -2,7 +2,6 @@ const path = require('path')
 const fs = require('fs')
 const crypto = require('crypto')
 const HtmlDiff = require('htmldiff-js')
-const { buildFrontPageHtml } = require('specpress/lib/md2html/frontPage')
 const { concatenateFiles } = require('specpress/lib/common/specProcessor')
 
 /**
@@ -75,23 +74,21 @@ function applyDiff(state, handler, config, currentHtml, content, filePath, files
   })
 
   // -- Step 3: Render baseline markdown to HTML --
-  const includeFrontPage = !!renderOpts.includeFrontPage
+  const frontPageData = renderOpts.frontPageData || null
   const crCoverPageData = renderOpts.crCoverPageData || null
-  let savedFrontHtml = null
-  if (includeFrontPage && !crCoverPageData) {
-    savedFrontHtml = handler.frontPageHtml
+  let baselineFrontPageData = frontPageData
+  if (frontPageData && !crCoverPageData) {
     const baselineFront = buildBaselineFrontPage(state, config, normPath)
-    handler.frontPageHtml = baselineFront !== null ? baselineFront : savedFrontHtml
+    if (baselineFront !== null) baselineFrontPageData = baselineFront
   }
   const baselineBody = handler.renderBody(
     baselineContent, false,
     renderOpts.baseDir || null,
     renderOpts.filePath || null,
     renderOpts.specRoot || null,
-    includeFrontPage,
+    baselineFrontPageData,
     crCoverPageData
   )
-  if (savedFrontHtml !== null) handler.frontPageHtml = savedFrontHtml
 
   // -- Step 4: Replace images and mermaid blocks with stable placeholders --
   const bodyMatch = currentHtml.match(/<body>([\s\S]*)<\/body>/)
@@ -244,7 +241,7 @@ function buildBaselineFrontPage(state, config, normPath) {
   if (!baselineDataJson) return null
 
   try {
-    return buildFrontPageHtml(JSON.parse(baselineDataJson))
+    return JSON.parse(baselineDataJson)
   } catch (e) {
     return null
   }

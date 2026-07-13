@@ -43,7 +43,8 @@ async function exportHtml(state, config, previewMgr) {
   if (state.isMultiFilePreview && state.multiFileContent) {
     previewMgr.ensureHandler()
     specRoot = state.multiFilePaths && state.multiFilePaths.length > 0 ? config.getSpecRootForFile(state.multiFilePaths[0]) : ''
-    htmlContent = state.handler.renderMarkdownForExport(state.multiFileContent, specRoot, state.isSpecRootPreview)
+    const fpData = state.isSpecRootPreview ? config.loadFrontPageData() : null
+    htmlContent = state.handler.renderMarkdownForExport(state.multiFileContent, specRoot, fpData)
     baseDir = state.multiFileBaseDir
   } else if (state.currentEditor) {
     previewMgr.ensureHandler()
