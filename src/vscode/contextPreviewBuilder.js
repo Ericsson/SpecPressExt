@@ -1,7 +1,6 @@
 const vscode = require('vscode')
 const path = require('path')
 const fs = require('fs')
-const { buildFrontPageHtml } = require('specpress/lib/md2html/frontPage')
 const { collectFiles, concatenateFiles } = require('specpress/lib/common/specProcessor')
 const { loadCRCoverPage } = require('./crCoverPageHelper')
 const { applyDiff } = require('./diffRenderer')
@@ -64,13 +63,6 @@ function buildContextPreview(state, config, ensureHandler) {
   const concatenated = concatenateFiles(contextFiles, readFile, specRoot)
 
   ensureHandler()
-
-  // Set front page HTML
-  if (isAtSpecStart) {
-    state.handler.frontPageHtml = buildFrontPageHtml(config.loadFrontPageData())
-  } else {
-    state.handler.frontPageHtml = null
-  }
 
   const baseDir = path.dirname(currentFilePath)
   const frontPageData = isAtSpecStart ? config.loadFrontPageData() : null

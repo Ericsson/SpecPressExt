@@ -43,16 +43,10 @@ async function exportHtml(state, config, previewMgr) {
   if (state.isMultiFilePreview && state.multiFileContent) {
     previewMgr.ensureHandler()
     specRoot = state.multiFilePaths && state.multiFilePaths.length > 0 ? config.getSpecRootForFile(state.multiFilePaths[0]) : ''
-    const fpData = state.isSpecRootPreview ? config.loadFrontPageData() : null
-    htmlContent = state.handler.renderMarkdownForExport(state.multiFileContent, specRoot, fpData)
     baseDir = state.multiFileBaseDir
   } else if (state.currentEditor) {
     previewMgr.ensureHandler()
     specRoot = config.getSpecRootForFile(state.currentEditor.document.uri.fsPath)
-    const text = state.currentEditor.document.fileName.endsWith('.asn')
-      ? concatenateFiles([state.currentEditor.document.fileName], () => state.currentEditor.document.getText(), specRoot)
-      : state.currentEditor.document.getText()
-    htmlContent = state.handler.renderMarkdownForExport(text, specRoot)
     baseDir = path.dirname(state.currentEditor.document.uri.fsPath)
   } else {
     vscode.window.showErrorMessage('Unable to export: no content available')
@@ -63,18 +57,22 @@ async function exportHtml(state, config, previewMgr) {
   const coverPageChoice = await selectCoverPage(config, specRoot)
   if (!coverPageChoice) return // User cancelled
 
-  // Prepend cover page HTML if selected
+  let frontPageData = null
+  let crCoverPageData = null
   if (coverPageChoice.type === 'cr' && coverPageChoice.crData) {
-    const { renderCRCoverPageHTML } = require('specpress/lib/md2html/crCoverPageRenderer')
-    const coverPageHtml = renderCRCoverPageHTML(coverPageChoice.crData)
-    htmlContent = coverPageHtml + '\n' + htmlContent
+    crCoverPageData = coverPageChoice.crData
   } else if (coverPageChoice.type === 'standard') {
-    const { buildFrontPageHtml } = require('specpress/lib/md2html/frontPage')
-    const frontPageData = config.loadFrontPageData()
-    if (frontPageData) {
-      const frontPageHtml = buildFrontPageHtml(frontPageData)
-      htmlContent = frontPageHtml + '\n' + htmlContent
-    }
+    frontPageData = config.loadFrontPageData()
+  }
+
+  // Render with the user's cover page choice
+  if (state.isMultiFilePreview && state.multiFileContent) {
+    htmlContent = state.handler.renderMarkdownForExport(state.multiFileContent, specRoot, frontPageData, crCoverPageData)
+  } else {
+    const text = state.currentEditor.document.fileName.endsWith('.asn')
+      ? concatenateFiles([state.currentEditor.document.fileName], () => state.currentEditor.document.getText(), specRoot)
+      : state.currentEditor.document.getText()
+    htmlContent = state.handler.renderMarkdownForExport(text, specRoot, frontPageData, crCoverPageData)
   }
 
   // Remove data-source attributes

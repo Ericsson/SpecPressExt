@@ -12,18 +12,18 @@ window.addEventListener('load', () => {
     mermaid.run().then(() => {
       const scrollY = window.pageYOffset || document.documentElement.scrollTop;
       const docHeight = document.documentElement.scrollHeight;
-      console.log('[LOAD #' + updateCount + '] scrollY=' + scrollY + ', docHeight=' + docHeight);
+      // console.log('[LOAD #' + updateCount + '] scrollY=' + scrollY + ', docHeight=' + docHeight);
       vscode.postMessage({ type: 'webviewReady' });
     }).catch(() => {
       const scrollY = window.pageYOffset || document.documentElement.scrollTop;
       const docHeight = document.documentElement.scrollHeight;
-      console.log('[LOAD #' + updateCount + '] scrollY=' + scrollY + ', docHeight=' + docHeight);
+      // console.log('[LOAD #' + updateCount + '] scrollY=' + scrollY + ', docHeight=' + docHeight);
       vscode.postMessage({ type: 'webviewReady' });
     });
   } else {
     const scrollY = window.pageYOffset || document.documentElement.scrollTop;
     const docHeight = document.documentElement.scrollHeight;
-    console.log('[LOAD #' + updateCount + '] scrollY=' + scrollY + ', docHeight=' + docHeight);
+    // console.log('[LOAD #' + updateCount + '] scrollY=' + scrollY + ', docHeight=' + docHeight);
     vscode.postMessage({ type: 'webviewReady' });
   }
 });
@@ -32,7 +32,7 @@ window.addEventListener('scroll', () => {
   if (isScrolling) return;
   
   const scrollY = window.pageYOffset || document.documentElement.scrollTop;
-  console.log('[SCROLL] scrollY=' + scrollY);
+  // console.log('[SCROLL] scrollY=' + scrollY);
 
   if (scrollTimeout) clearTimeout(scrollTimeout);
   scrollTimeout = setTimeout(() => {

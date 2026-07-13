@@ -1,7 +1,6 @@
 const vscode = require('vscode')
 const path = require('path')
 const fs = require('fs')
-const { buildFrontPageHtml } = require('specpress/lib/md2html/frontPage')
 const { collectFiles, concatenateFiles } = require('specpress/lib/common/specProcessor')
 const { getFileFromCommit, collectFilesFromCommit } = require('specpress/lib/common/gitHelpers')
 const { insertOmittedMarkers } = require('./helpers')
@@ -77,7 +76,7 @@ async function previewMultiple(state, config, ensureHandler, registerMessageHand
       const specRoot = files.length > 0 ? config.getSpecRootForFile(files[0]) : ''
 
       // Select cover page if at spec root
-      let frontPageHtml = null
+      let frontPageData = null
       let crCoverPageData = null
 
       if (state.isSpecRootPreview) {
@@ -87,13 +86,10 @@ async function previewMultiple(state, config, ensureHandler, registerMessageHand
         if (coverPageChoice.type === 'cr') {
           crCoverPageData = coverPageChoice.crData
         } else if (coverPageChoice.type === 'standard') {
-          frontPageHtml = buildFrontPageHtml(config.loadFrontPageData())
+          frontPageData = config.loadFrontPageData()
         }
         // else: type === 'none', both remain null
       }
-
-      // Set front page HTML
-      state.handler.frontPageHtml = frontPageHtml
 
       const readFile = commitRef ? (f) => getFileFromCommit(commitRef.repoRoot, f, commitRef.commit) : undefined
       let processedContent = concatenateFiles(files, readFile, specRoot)
@@ -125,7 +121,6 @@ async function previewMultiple(state, config, ensureHandler, registerMessageHand
       }
 
       state.panel.title = commitRef ? `Preview (${commitRef.shortHash})` : (state.changeTrackingCommit ? 'Preview (changes)' : 'Multiple Files Preview')
-      const frontPageData = state.isSpecRootPreview ? config.loadFrontPageData() : null
       let html = state.handler.renderMarkdown(processedContent, baseDir, null, specRoot, frontPageData, crCoverPageData)
       if (!commitRef) {
         html = applyDiff(state, state.handler, config, html, processedContent, null, files, { baseDir, specRoot, frontPageData, crCoverPageData })
