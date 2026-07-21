@@ -2,7 +2,8 @@ const vscode = require('vscode')
 const path = require('path')
 const fs = require('fs')
 const { collectFiles, concatenateFiles } = require('specpress/lib/common/specProcessor')
-const { loadCRCoverPage } = require('./crCoverPageHelper')
+const { detectCRCoverPage } = require('specpress/lib/common/crCoverPageDetector')
+const { loadCRCoverPageData } = require('specpress/lib/common/crCoverPageLoader')
 const { applyDiff } = require('./diffRenderer')
 
 /**
@@ -50,7 +51,14 @@ function buildContextPreview(state, config, ensureHandler) {
   const specRoot = config.getSpecRootForFile(currentFilePath)
 
   // Detect CR cover page if at spec start
-  const crCoverPageData = isAtSpecStart ? loadCRCoverPage(specRoot) : null
+  let crCoverPageData = null
+  if (isAtSpecStart && specRoot) {
+    const crFilePath = detectCRCoverPage(specRoot)
+    if (crFilePath) {
+      const crResult = loadCRCoverPageData(crFilePath)
+      if (crResult.valid) crCoverPageData = crResult.data
+    }
+  }
 
   // Use concatenateFiles to get proper auto-headings and section numbering
   const readFile = (filePath) => {
