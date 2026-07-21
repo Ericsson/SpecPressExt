@@ -2,7 +2,7 @@ const vscode = require('vscode')
 const fs = require('fs')
 const path = require('path')
 const { getRepoRoot } = require('specpress/lib/common/gitHelpers')
-const { createCommitResolver } = require('specpress/lib/common/fileResolver')
+const { createCommitResolver, createLocalResolver } = require('specpress/lib/common/fileResolver')
 const { collectFiles, concatenateFiles, formatExportMessage } = require('specpress/lib/common/specProcessor')
 const { Md2Html } = require('specpress/lib/md2html/md2html')
 const { diffHtml } = require('specpress/lib/md2html/htmlDiff')
@@ -12,12 +12,6 @@ const { selectCoverPage } = require('./coverPageSelector')
 /**
  * Handles the "Export Selected to HTML" command from the explorer context menu.
  * Supports exporting a single version or a diff between two versions.
- *
- * @param {import('./stateManager').StateManager} state
- * @param {import('./configLoader').ConfigLoader} config
- * @param {string} extensionDir - Absolute path to the extension root directory.
- * @param {vscode.Uri} [uri]
- * @param {vscode.Uri[]} [allUris]
  */
 async function exportHtml(state, config, extensionDir, uri, allUris) {
   const uris = allUris || (uri ? [uri] : await vscode.window.showOpenDialog({
@@ -36,7 +30,6 @@ async function exportHtml(state, config, extensionDir, uri, allUris) {
     repoRoot = null
   }
 
-  // Pick base version and optional compare version
   let commitRef = null
   let baselineRef = null
   if (repoRoot) {
@@ -65,14 +58,12 @@ async function exportHtml(state, config, extensionDir, uri, allUris) {
   const specRoot = config.findSpecRootFor(uris[0].fsPath)
   const sectionSpecRoot = config.getSpecRootForFile(uris[0].fsPath)
 
-  // Step 3: cover page selection (before save dialog)
   const coverPageChoice = await selectCoverPage(config, specRoot)
   if (!coverPageChoice) return
 
   const frontPageData = coverPageChoice.type === 'standard' ? coverPageChoice.frontPage : null
   const crCoverPageData = coverPageChoice.type === 'cr' ? coverPageChoice.crData : null
 
-  // Step 4: save dialog
   const files = shortHash
     ? collectFilesFromCommitUris(repoRoot, uris, commitInput)
     : collectFilesFromUris(uris)
@@ -128,21 +119,21 @@ async function exportHtml(state, config, extensionDir, uri, allUris) {
         const mediaDir = path.join(exportDir, 'media')
         fs.mkdirSync(mediaDir, { recursive: true })
 
+        let compareResolver = null
         let html
         if (isDiff) {
-          // Build compare resolver
-          let compareResolver = null
           if (compareCommit && specRoot) {
             compareResolver = createCommitResolver(repoRoot, specRoot, compareCommit)
+          } else if (specRoot && repoRoot) {
+            compareResolver = createLocalResolver(repoRoot, specRoot)
           }
 
           const compareFiles = compareCommit
             ? collectFilesFromCommitUris(repoRoot, uris, compareCommit)
             : collectFilesFromUris(uris)
-          const compareReadFile = compareResolver ? (f) => compareResolver.readFile(f, 'utf8') : undefined
+          const compareReadFile = compareResolver && compareCommit ? (f) => compareResolver.readFile(f, 'utf8') : undefined
           const compareContent = concatenateFiles(compareFiles, compareReadFile, sectionSpecRoot)
 
-          // Render the compare version as the HTML shell
           html = handler.renderMarkdownForExport(compareContent, sectionSpecRoot, frontPageData, crCoverPageData)
           const bodyMatch = html.match(/<body>([\s\S]*)<\/body>/)
           if (bodyMatch) {
@@ -151,6 +142,7 @@ async function exportHtml(state, config, extensionDir, uri, allUris) {
               currentContent: compareContent,
               handler,
               baselineFileResolver: baseResolver,
+              currentFileResolver: compareResolver,
               frontPageData,
               crCoverPageData,
             })
@@ -163,43 +155,65 @@ async function exportHtml(state, config, extensionDir, uri, allUris) {
         html = html.replace(/\s*data-source-line="\d+"/g, '')
         html = html.replace(/\s*data-source-file="[^"]*"/g, '')
 
+        // Copy images to media/.
+        // For diff exports: images inside diff-del-block are from the baseline (old) version
+        // and must be read via baseResolver. All other images are from the current version.
+        // Using a suffix '_old' for baseline images ensures changed images get distinct filenames.
         const copiedImages = new Map()
-        html = html.replace(/<img([^>]*?)src="([^"]+)"([^>]*?)>/g, (match, before, src, after) => {
-          if (/^(https?:|data:)/.test(src)) return match
 
-          let imagePath = null
-          if (path.isAbsolute(src)) {
-            const exists = baseResolver ? baseResolver.exists(src) : fs.existsSync(src)
-            if (exists) imagePath = src
-          } else {
-            if (specRoot) {
-              const c = path.join(path.dirname(specRoot), src)
-              if (baseResolver ? baseResolver.exists(c) : fs.existsSync(c)) imagePath = c
-            }
-            if (!imagePath) {
-              for (const f of files) {
-                const c = path.join(path.dirname(f), src)
-                if (baseResolver ? baseResolver.exists(c) : fs.existsSync(c)) { imagePath = c; break }
-              }
-            }
+        const resolveImagePath = (src) => {
+          if (path.isAbsolute(src)) return src
+          if (specRoot) {
+            const c = path.join(path.dirname(specRoot), src)
+            if (fs.existsSync(c) || (baseResolver && baseResolver.exists(c)) || (compareResolver && compareResolver.exists(c))) return c
           }
-          if (!imagePath) return match
-
-          if (copiedImages.has(imagePath)) {
-            return `<img${before}src="media/${copiedImages.get(imagePath)}"${after}>`
+          for (const f of files) {
+            const c = path.join(path.dirname(f), src)
+            if (fs.existsSync(c)) return c
           }
+          return null
+        }
 
+        const copyImage = (imagePath, resolver, suffix) => {
+          const key = imagePath + suffix
+          if (copiedImages.has(key)) return copiedImages.get(key)
           const ext = path.extname(imagePath)
           const rel = specRoot ? path.relative(path.dirname(specRoot), imagePath) : path.basename(imagePath)
-          const safeName = rel.slice(0, -ext.length).replace(/[\\/.]+/g, '_').replace(/^_+/, '') + ext
+          const safeName = rel.slice(0, -ext.length).replace(/[\\/.]+/g, '_').replace(/^_+/, '') + suffix + ext
           try {
-            const data = baseResolver ? baseResolver.readFile(imagePath) : fs.readFileSync(imagePath)
+            let data
+            if (resolver && resolver.exists(imagePath)) {
+              data = resolver.readFile(imagePath)
+            } else {
+              data = fs.readFileSync(imagePath)
+            }
             fs.writeFileSync(path.join(mediaDir, safeName), data)
-            copiedImages.set(imagePath, safeName)
-            return `<img${before}src="media/${safeName}"${after}>`
-          } catch (e) {
-            return match
-          }
+            copiedImages.set(key, safeName)
+            return safeName
+          } catch (e) { return null }
+        }
+
+        // Pass 1: images inside diff-del-block → read from baseResolver, suffix '_old'
+        html = html.replace(/(<div class="diff-del-block"[^>]*>)([\s\S]*?)(<\/div>)/g, (block, open, inner, close) => {
+          const newInner = inner.replace(/<img([^>]*?)src="([^"]+)"([^>]*?)>/g, (match, before, src, after) => {
+            if (/^(https?:|data:)/.test(src)) return match
+            const imagePath = resolveImagePath(src)
+            if (!imagePath) return match
+            const safeName = copyImage(imagePath, baseResolver, '_old')
+            return safeName ? `<img${before}src="media/${safeName}"${after}>` : match
+          })
+          return open + newInner + close
+        })
+
+        // Pass 2: all remaining images → read from compareResolver (or fs), no suffix
+        html = html.replace(/<img([^>]*?)src="([^"]+)"([^>]*?)>/g, (match, before, src, after) => {
+          if (/^(https?:|data:)/.test(src)) return match
+          const imagePath = resolveImagePath(src)
+          if (!imagePath) return match
+          const resolver = (compareResolver && compareResolver.exists(imagePath)) ? compareResolver
+            : (baseResolver && baseResolver.exists(imagePath)) ? baseResolver : null
+          const safeName = copyImage(imagePath, resolver, '')
+          return safeName ? `<img${before}src="media/${safeName}"${after}>` : match
         })
 
         fs.writeFileSync(saveUri.fsPath, html)
