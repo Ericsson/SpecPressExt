@@ -52,9 +52,9 @@ function applyDiff(state, handler, config, currentHtml, content, filePath, files
 
   // -- Step 2: Resolve JsonTable links from the baseline --
   baselineContent = baselineContent.replace(/\r\n/g, '\n')
-  baselineContent = baselineContent.replace(/\[JsonTable\]\(([^)]+\.json)\)/g, (match, jsonRelPath) => {
+  baselineContent = baselineContent.replace(/\[JsonTable\]\(([^)]+\.json)\)/g, (match, jsonRelPath, offset) => {
     try {
-      const beforeMatch = baselineContent.substring(0, baselineContent.indexOf(match))
+      const beforeMatch = baselineContent.substring(0, offset)
       const fileComment = beforeMatch.match(/<!-- FILE: (.+?) -->/g)
       const lastFile = fileComment ? fileComment[fileComment.length - 1].match(/<!-- FILE: (.+?) -->/)[1] : (filePath || (files && files[0]) || '')
       const dir = path.dirname(lastFile)
@@ -74,15 +74,19 @@ function applyDiff(state, handler, config, currentHtml, content, filePath, files
     if (baselineFront !== null) baselineFrontPageData = baselineFront
   }
 
-  // -- Step 4: Extract current body and strip source annotations for diffing --
-  // (No longer needed — diffHtml re-renders both versions internally with stable paths)
+  // -- Step 4: Call specpress diffHtml --
+  // Pass handler.fileResolver as currentFileResolver so diffHtml renders both
+  // sides with absolute paths for hashing, then applies resolveImageUri at
+  // restore time (webview URIs for preview, absolute paths for export).
+  const bodyMatch = currentHtml.match(/<body>([\s\S]*)<\/body>/)
+  if (!bodyMatch) return currentHtml
 
-  // -- Step 5: Call specpress diffHtml --
   const diffBody = diffHtml({
     baselineContent,
     currentContent: content,
     handler,
     baselineFileResolver: resolver,
+    currentFileResolver: handler.fileResolver || null,
     frontPageData: baselineFrontPageData,
     crCoverPageData,
   })
@@ -110,8 +114,6 @@ function applyDiff(state, handler, config, currentHtml, content, filePath, files
     finalBody = finalBody.substring(0, seg.start) + segment + finalBody.substring(seg.end)
   }
 
-  const bodyMatch = currentHtml.match(/<body>([\s\S]*)<\/body>/)
-  if (!bodyMatch) return currentHtml
   return currentHtml.replace(bodyMatch[0], '<body>' + finalBody + '</body>')
 }
 

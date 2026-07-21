@@ -30,7 +30,7 @@ const { applyDiff } = require('../../src/vscode/diffRenderer')
 // ── Helpers ──
 
 /** Creates a minimal state object with change tracking enabled. */
-function makeState(baselineMap) {
+function makeState(baselineMap, specRoot) {
   // Create a mock FileResolver backed by the map
   const map = new Map(Object.entries(baselineMap))
   const normPath = (p) => p.replace(/\\/g, '/').toLowerCase()
@@ -42,6 +42,7 @@ function makeState(baselineMap) {
     }
     return null
   }
+  const resolvedSpecRoot = specRoot || '/'
   const resolver = {
     readFile: (absPath, encoding) => {
       const val = find(absPath)
@@ -49,11 +50,20 @@ function makeState(baselineMap) {
       return val
     },
     readFileOrNull: (absPath, encoding) => find(absPath),
-    exists: (absPath) => find(absPath) != null
+    exists: (absPath) => find(absPath) != null,
+    specRootAbsLocal: resolvedSpecRoot,
+    get specRoot() { return resolvedSpecRoot },
+    listSpecFiles: (isBodyFile, isRelative) => {
+      const keys = [...map.keys()].filter(k => /\.(md|asn)$/i.test(k))
+      if (isRelative) return keys.map(k => path.relative(resolvedSpecRoot, k))
+      return keys
+    }
   }
+  const currentResolver = { specRoot: resolvedSpecRoot }
   return {
     changeTrackingCommit: 'abc123',
-    changeTrackingResolver: resolver
+    changeTrackingResolver: resolver,
+    currentResolver
   }
 }
 
@@ -204,17 +214,18 @@ test('unchanged mermaid block is restored without diff markers', () => {
 })
 
 test('new mermaid block shows as inserted', () => {
-  const state = makeState({ '/file.md': 'no mermaid here' })
+  const mermaidHtml = '<pre class="mermaid">graph TD\n  A-->B</pre>'
+  const state = makeState({ '/file.md': 'no diagram here' })
   const handler = {
     frontPageHtml: null,
     renderBody(content) {
-      return '<p>no mermaid here</p>'
+      if (content && content.includes('```mermaid')) return `<p>no diagram here</p>\n${mermaidHtml}`
+      return '<p>no diagram here</p>'
     }
   }
   const config = makeConfig()
-  const mermaidHtml = '<pre class="mermaid">graph TD\n  A-->B</pre>'
-  const currentHtml = wrapHtml(`<p>no mermaid here</p>\n${mermaidHtml}`)
-  const result = applyDiff(state, handler, config, currentHtml, 'no mermaid here\n```mermaid\ngraph TD\n  A-->B\n```', '/file.md', null, { baseDir: '/' })
+  const currentHtml = wrapHtml(`<p>no diagram here</p>\n${mermaidHtml}`)
+  const result = applyDiff(state, handler, config, currentHtml, 'no diagram here\n```mermaid\ngraph TD\n  A-->B\n```', '/file.md', null, { baseDir: '/' })
   assert.ok(result.includes('diff-ins-block') || result.includes('New figure'), 'should mark new mermaid as inserted')
 })
 
@@ -224,12 +235,13 @@ test('removed mermaid block shows as deleted', () => {
   const handler = {
     frontPageHtml: null,
     renderBody(content) {
-      return mermaidHtml
+      if (content && content.includes('```mermaid')) return mermaidHtml
+      return '<p>diagram removed</p>'
     }
   }
   const config = makeConfig()
-  const currentHtml = wrapHtml('<p>mermaid removed</p>')
-  const result = applyDiff(state, handler, config, currentHtml, 'mermaid removed', '/file.md', null, { baseDir: '/' })
+  const currentHtml = wrapHtml('<p>diagram removed</p>')
+  const result = applyDiff(state, handler, config, currentHtml, 'diagram removed', '/file.md', null, { baseDir: '/' })
   assert.ok(result.includes('diff-del-block') || result.includes('Deleted figure'), 'should mark removed mermaid as deleted')
 })
 
@@ -254,7 +266,10 @@ test('new image shows as inserted', () => {
   const state = makeState({ '/file.md': 'no image' })
   const handler = {
     frontPageHtml: null,
-    renderBody() { return '<p>no image</p>' }
+    renderBody(content) {
+      if (content && content.includes('new.png')) return '<p>no image</p>\n<img src="new.png" alt="new">'
+      return '<p>no image</p>'
+    }
   }
   const config = makeConfig()
   const currentHtml = wrapHtml('<p>no image</p>\n<img src="new.png" alt="new">')
@@ -323,24 +338,26 @@ console.log('\napplyDiff - JsonTable inlining')
 
 test('inlines JsonTable from baseline cache', () => {
   const jsonContent = '{"columns":[{"name":"A"}],"rows":[["1"]]}'
+  const fileDir = path.join(path.sep, 'dir')
+  const filePath = path.join(fileDir, 'file.md')
+  const jsonPath = path.join(fileDir, 'table.json')
   const state = makeState({
-    '/dir/file.md': '<!-- FILE: /dir/file.md -->\n[JsonTable](table.json)',
-    '/dir/table.json': jsonContent
+    [filePath]: `<!-- FILE: ${filePath} -->\n[JsonTable](table.json)`,
+    [jsonPath]: jsonContent
   })
-  let renderedContent = ''
+  let baselineRenderedContent = ''
   const handler = {
     frontPageHtml: null,
     renderBody(content) {
-      renderedContent = content
+      if (!baselineRenderedContent) baselineRenderedContent = content
       return '<p>table</p>'
     }
   }
   const config = makeConfig()
   const currentHtml = wrapHtml('<p>modified table</p>')
-  applyDiff(state, handler, config, currentHtml, 'modified', '/dir/file.md', null, { baseDir: '/dir' })
-  // The baseline content passed to renderBody should have the JsonTable inlined
-  assert.ok(renderedContent.includes('```jsonTable'), 'should inline JsonTable as fenced code block')
-  assert.ok(renderedContent.includes(jsonContent), 'should contain the JSON content')
+  applyDiff(state, handler, config, currentHtml, 'modified', filePath, null, { baseDir: fileDir })
+  assert.ok(baselineRenderedContent.includes('```jsonTable'), 'should inline JsonTable as fenced code block')
+  assert.ok(baselineRenderedContent.includes(jsonContent), 'should contain the JSON content')
 })
 
 console.log('\napplyDiff - FILE markers and data-source-file injection')
