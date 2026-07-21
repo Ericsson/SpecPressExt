@@ -4,7 +4,7 @@ const path = require('path')
 const { execSync } = require('child_process')
 const { getGitLog } = require('specpress/lib/common/gitHelpers')
 const { collectFiles } = require('specpress/lib/common/specProcessor')
-const { collectFilesFromCommit, extractFilesFromCommit } = require('specpress/lib/common/gitHelpers')
+const { collectFilesFromCommit } = require('specpress/lib/common/gitHelpers')
 const { insertOmittedMarkers } = require('specpress/lib/common/specProcessor')
 const { findWinword } = require('specpress/lib/common/docxMerge')
 
@@ -133,10 +133,11 @@ function collectFilesFromCommitUris(repoRoot, uris, commit) {
  * @returns {Function} Async function `(codes) => svgs[]`.
  */
 function makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot) {
-  const { renderWithCache, renderMermaidViaWebview } = require('specpress/lib/md2docx/handlers/mermaidHandler')
-  return (codes) => renderWithCache(
+  const { renderMermaidCached } = require('specpress/lib/common/diagramRenderers')
+  const { renderMermaidViaWebview } = require('./mermaidWebviewRenderer')
+  return (codes) => renderMermaidCached(
     codes, mermaidConfig, specRoot,
-    (uncachedCodes) => renderMermaidViaWebview(vscode, uncachedCodes, mermaidConfig, mermaidBundlePath)
+    (uncachedCodes) => renderMermaidViaWebview(uncachedCodes, mermaidConfig, mermaidBundlePath)
   )
 }
 
@@ -195,14 +196,106 @@ function generateCRFilename(crData) {
   }
 }
 
+/**
+ * Prompts the user to pick a base version and up to (maxVersions-1) additional versions.
+ * Returns a uniform array of version objects: [{ commitInput, shortHash, label, authorName }]
+ *
+ * - commitInput: commit hash string, '' for local files, or null for local (no git)
+ * - shortHash: short hash string or null for local
+ * - label: display string ('local' or short hash)
+ * - authorName: author string for tracked-changes attribution, or null for base/HTML
+ *
+ * @param {string} repoRoot
+ * @param {string} basePrompt - Prompt for the base version picker.
+ * @param {string} comparePrompt - Prompt for the compare version picker(s).
+ * @param {number} [maxVersions=2] - Maximum number of versions (1 = no diff possible).
+ * @param {boolean} [askAuthors=false] - If true, prompt for author name for each additional version.
+ * @returns {Promise<Array|null>} Array of version objects, or null if user cancelled.
+ */
+async function pickVersions(repoRoot, basePrompt, comparePrompt, maxVersions = 2, askAuthors = false) {
+  const vscode = require('vscode')
+
+  const makeVersion = (commitInput, shortHash, authorName = null) => ({
+    commitInput,
+    shortHash,
+    label: shortHash || 'local',
+    authorName
+  })
+
+  // Step 1: base version
+  const basePicked = await pickCommit(repoRoot, basePrompt, { localFilesOption: true })
+  if (basePicked === null) return null
+
+  let baseShortHash = null
+  if (basePicked) {
+    try {
+      baseShortHash = execSync(`git rev-parse --short ${basePicked}`, { cwd: repoRoot, encoding: 'utf8' }).trim()
+    } catch (e) {
+      vscode.window.showErrorMessage(`Invalid commit reference: ${basePicked}`)
+      return null
+    }
+  }
+
+  const versions = [makeVersion(basePicked || null, baseShortHash)]
+
+  // Step 2+: optional additional versions
+  while (versions.length < maxVersions) {
+    const versionNum = versions.length + 1
+    const prompt = versions.length === 1
+      ? comparePrompt
+      : `${comparePrompt} (version ${versionNum}, or None to finish)`
+    const picked = await pickCommit(repoRoot, prompt, { localFilesOption: true, noneOption: true })
+    if (picked === null) return null  // Escape = cancel entirely
+    if (picked === 'NONE') break
+
+    let shortHash = null
+    const commitInput = picked  // '' for local, hash string for commit
+    if (picked) {
+      try {
+        shortHash = execSync(`git rev-parse --short ${picked}`, { cwd: repoRoot, encoding: 'utf8' }).trim()
+      } catch (e) {
+        vscode.window.showErrorMessage(`Invalid commit reference: ${picked}`)
+        return null
+      }
+    }
+
+    let authorName = null
+    if (askAuthors) {
+      let defaultAuthor
+      if (shortHash) {
+        try {
+          const msg = execSync(`git log -1 --format=%s ${picked}`, { cwd: repoRoot, encoding: 'utf8' }).trim()
+          const msgSanitized = msg.substring(0, 40)
+            .replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')
+          defaultAuthor = `${shortHash}_${msgSanitized}`
+        } catch (e) {
+          defaultAuthor = `Author${versions.length}`
+        }
+      } else {
+        defaultAuthor = `Author${versions.length}`
+      }
+      authorName = await vscode.window.showInputBox({
+        prompt: `Author name for changes introduced by version ${versionNum} (${shortHash || 'local'})`,
+        value: defaultAuthor,
+        placeHolder: 'Author name for tracked changes'
+      })
+      if (!authorName) return null
+    }
+
+    versions.push(makeVersion(commitInput || null, shortHash, authorName))
+  }
+
+  return versions
+}
+
 module.exports = {
   NOT_CONFIGURED_MSG,
   formatExportTimestamp,
   showExportNotification,
   pickCommit,
+  pickVersions,
   collectFilesFromUris,
   collectFilesFromCommitUris,
-  extractFilesFromCommit,
   insertOmittedMarkers,
   makeMermaidRenderer,
   findWinword,

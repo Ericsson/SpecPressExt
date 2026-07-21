@@ -7,6 +7,8 @@ const { buildFileContext, buildContextPreview } = require('./contextPreviewBuild
 const { previewMultiple } = require('./multiFilePreviewBuilder')
 const { applyDiff } = require('./diffRenderer')
 const { logger } = require('./logger')
+const { createLocalResolver } = require('specpress/lib/common/fileResolver')
+const { getRepoRoot } = require('specpress/lib/common/gitHelpers')
 
 /** Load scroll sync script from external file */
 const scrollSyncScriptPath = path.join(__dirname, 'scrollSync.js')
@@ -30,28 +32,51 @@ class PreviewManager {
     this.extensionDir = extensionDir
   }
 
-  /** Creates or re-creates the Md2Html handler with current settings. */
-  initHandler() {
-    const specRoot = this.state.currentEditor
-      ? this.config.getSpecRootForFile(this.state.currentEditor.document.uri.fsPath)
-      : (this.state.lastMultiFileUris && this.state.lastMultiFileUris.length > 0
-        ? this.config.getSpecRootForFile(this.state.lastMultiFileUris[0].fsPath)
-        : null)
-
+  /**
+   * Creates or re-creates the Md2Html handler with current settings.
+   * Uses state.currentResolver (always a FileResolver) for file existence
+   * checks and URI mapping.
+   * @param {string} specRoot - Spec root for section numbering.
+   */
+  initHandler(specRoot) {
+    const resolver = this.state.currentResolver
+    if (resolver && !resolver.resolveImageUri) {
+      resolver.resolveImageUri = (absPath) => {
+        const resolved = resolver.getAbsPath(absPath)
+        return this.state.panel
+          ? this.state.panel.webview.asWebviewUri(vscode.Uri.file(resolved)).toString()
+          : resolved
+      }
+    }
     this.state.handler = new Md2Html({
       css: this.config.loadCss(this.extensionDir),
       mermaidConfig: this.config.loadMermaidConfig(),
       mscgenConfig: this.config.loadMscgenConfig ? this.config.loadMscgenConfig() : null,
       customRenderers: this.config.customRenderers,
-      resolveImageUri: (absPath) => this.state.panel ? this.state.panel.webview.asWebviewUri(vscode.Uri.file(absPath)).toString() : absPath,
+      fileResolver: resolver || null,
       extraHeadContent: scrollSyncScript,
-      specRootPath: specRoot
+      specRootPath: specRoot || ''
     })
   }
 
   /** Ensures the handler is initialized. */
-  ensureHandler() {
-    if (!this.state.handler) this.initHandler()
+  ensureHandler(specRoot) {
+    if (!this.state.handler) this.initHandler(specRoot)
+  }
+
+  /**
+   * Builds the localResourceRoots array for a webview panel.
+   * Uses resolver.rootDir as the single root — covers the spec tree and cached/ dir.
+   * For single-file preview, also includes the change tracking baseline resolver's rootDir.
+   * For multi-file preview, the baseline resolver root is added by multiFilePreviewBuilder.
+   * @returns {vscode.Uri[]}
+   */
+  buildResourceRoots() {
+    const roots = [vscode.Uri.file(this.state.currentResolver.rootDir)]
+    if (this.state.changeTrackingResolver) {
+      roots.push(vscode.Uri.file(this.state.changeTrackingResolver.rootDir))
+    }
+    return roots
   }
 
   /**
@@ -91,7 +116,7 @@ class PreviewManager {
           logger.log(`[LOAD_PREV] Expanding context upward, oldScrollHeight=${oldScrollHeight}, oldScrollTop=${oldScrollTop}`)
 
           state.contextStartIdx = Math.max(0, state.contextStartIdx - 1)
-          const html = buildContextPreview(state, this.config, () => this.ensureHandler())
+          const html = buildContextPreview(state, this.config, () => this.ensureHandler(this.config.getSpecRootForFile(state.currentEditor && state.currentEditor.document.uri.fsPath)))
 
           state.suppressScrollToFile = true
           state.panel.webview.html = html
@@ -112,7 +137,7 @@ class PreviewManager {
         const newEndIdx = Math.min(state.contextFiles.length - 1, state.contextEndIdx + count)
         if (newEndIdx > state.contextEndIdx) {
           state.contextEndIdx = newEndIdx
-          const html = buildContextPreview(state, this.config, () => this.ensureHandler())
+          const html = buildContextPreview(state, this.config, () => this.ensureHandler(this.config.getSpecRootForFile(state.currentEditor && state.currentEditor.document.uri.fsPath)))
           state.panel.webview.html = html
         }
       } else if (message.type === 'openFile') {
@@ -205,27 +230,59 @@ class PreviewManager {
     state.lastFocusedIsEditor = false
     vscode.commands.executeCommand('setContext', 'specpress.isMultiFilePreview', false)
 
-    const isNewPanel = !state.panel
+    // Recreate the panel when localResourceRoots need to change (change tracking
+    // toggled, or no panel exists yet). Reuse the existing panel for normal file switches
+    // to avoid focus disruption and disposal cascades.
+    const needNewPanel = !state.panel || state.panel._changeTrackingActive !== !!state.changeTrackingCommit
+    if (needNewPanel) {
+      if (state.panel) {
+        state._replacingPanel = true
+        state.panel.dispose()
+        state._replacingPanel = false
+        state.panel = null
+      }
 
-    if (!state.panel) {
-      const resourceRoot = this.config.findSpecRootFor(editor.document.uri.fsPath)
-        || this.config.wsRoot
-        || path.dirname(editor.document.uri.fsPath)
-      const cachedDir = path.join(path.dirname(resourceRoot), 'cached')
-      const resourceRoots = [vscode.Uri.file(resourceRoot)]
-      if (fs.existsSync(cachedDir)) resourceRoots.push(vscode.Uri.file(cachedDir))
+      // Create a local resolver so all file access goes through FileResolver uniformly
+      const specRoot = this.config.findSpecRootFor(filePath) || this.config.wsRoot || path.dirname(filePath)
+      let repoRoot = specRoot
+      try { repoRoot = getRepoRoot(specRoot) } catch (e) { /* not a git repo */ }
+      state.currentResolver = createLocalResolver(repoRoot, specRoot)
+
       state.panel = vscode.window.createWebviewPanel('specpressPreview', 'Preview',
         vscode.ViewColumn.Beside, {
           enableScripts: true,
           retainContextWhenHidden: true,
-          localResourceRoots: resourceRoots
+          localResourceRoots: this.buildResourceRoots()
         })
+      state.panel._changeTrackingActive = !!state.changeTrackingCommit
       state.panel.onDidDispose(() => state.onPanelDisposed())
       this.registerMessageHandler()
+
+      // Set resolveImageUri on changeTrackingResolver now that the panel exists
+      if (state.changeTrackingResolver) {
+        const ctResolver = state.changeTrackingResolver
+        ctResolver.resolveImageUri = (absPath) =>
+          state.panel.webview.asWebviewUri(vscode.Uri.file(ctResolver.getAbsPath(absPath))).toString()
+      }
+
+      // Reinitialize handler so resolveImageUri closure captures the new panel and resolver
+      state.handler = null
+      this.ensureHandler(this.config.getSpecRootForFile(filePath))
+
+      // Refocus editor after panel creation
+      setTimeout(() => {
+        vscode.window.showTextDocument(editor.document, editor.viewColumn, false)
+      }, 100)
+    } else {
+      const specRoot = this.config.findSpecRootFor(filePath) || this.config.wsRoot || path.dirname(filePath)
+      let repoRoot = specRoot
+      try { repoRoot = getRepoRoot(specRoot) } catch (e) { /* not a git repo */ }
+      state.currentResolver = createLocalResolver(repoRoot, specRoot)
+      this.ensureHandler(this.config.getSpecRootForFile(filePath))
     }
 
     // Render context preview
-    const html = buildContextPreview(state, this.config, () => this.ensureHandler())
+    const html = buildContextPreview(state, this.config, () => this.ensureHandler(this.config.getSpecRootForFile(filePath)))
     state.panel.webview.html = html
     const prefix = state.changeTrackingCommit ? 'Preview (changes)' : 'Preview'
     state.panel.title = prefix
@@ -242,12 +299,6 @@ class PreviewManager {
       }
     }, 100)
 
-    if (isNewPanel) {
-      setTimeout(() => {
-        vscode.window.showTextDocument(editor.document, editor.viewColumn, false)
-      }, 100)
-    }
-
     // Live update on text changes (debounced)
     let updateTimeout = null
     state.updatePreview = vscode.workspace.onDidChangeTextDocument(e => {
@@ -255,7 +306,7 @@ class PreviewManager {
         if (updateTimeout) clearTimeout(updateTimeout)
         updateTimeout = setTimeout(() => {
           if (!state.panel || !state.currentEditor) return
-          const html = buildContextPreview(state, this.config, () => this.ensureHandler())
+          const html = buildContextPreview(state, this.config, () => this.ensureHandler(this.config.getSpecRootForFile(state.currentEditor.document.uri.fsPath)))
           state.panel.webview.html = html
         }, 500)
       }
@@ -269,7 +320,7 @@ class PreviewManager {
       const savedPath = doc.uri.fsPath
       if (state.contextFiles.includes(savedPath) || doc.fileName.endsWith('.json')) {
         state.adjacentFileCache.delete(savedPath)
-        const html = buildContextPreview(state, this.config, () => this.ensureHandler())
+        const html = buildContextPreview(state, this.config, () => this.ensureHandler(this.config.getSpecRootForFile(state.currentEditor.document.uri.fsPath)))
         state.panel.webview.html = html
       }
     })
@@ -399,12 +450,13 @@ class PreviewManager {
    * Builds and displays a multi-file preview.
    * Delegates to multiFilePreviewBuilder.
    */
-  async previewMultiple(uris, commitRef) {
+  async previewMultiple(uris, commitRef, baselineRef) {
     await previewMultiple(
       this.state, this.config,
-      () => this.ensureHandler(),
+      (specRoot) => this.ensureHandler(specRoot),
       () => this.registerMessageHandler(),
-      uris, commitRef
+      () => this.buildResourceRoots(),
+      uris, commitRef, baselineRef
     )
   }
 }

@@ -40,6 +40,10 @@ class StateManager {
     this.lastFocusedIsEditor = true
     /** @type {import('vscode').Uri[]|null} URIs from the most recent multi-file preview */
     this.lastMultiFileUris = null
+    /** @type {object|null} CommitRef from the most recent multi-file preview */
+    this.lastMultiFileCommitRef = null
+    /** @type {object|string|null} Baseline ref from the most recent multi-file preview */
+    this.lastMultiFileBaselineRef = null
     /** @type {boolean} Whether the current multi-file preview covers a spec root */
     this.isSpecRootPreview = false
     /** @type {{file: string, line: number}|null} Last single-file position for scroll restore */
@@ -54,8 +58,8 @@ class StateManager {
     this.changeTrackingCommit = null
     /** @type {string|null} Repo root for change tracking */
     this.changeTrackingRepoRoot = null
-    /** @type {Map<string,string|Buffer>|null} Cached baseline file contents */
-    this.changeTrackingBaseline = null
+    /** @type {import('../../specpress/lib/common/fileResolver').FileResolver|null} Resolver for baseline files */
+    this.changeTrackingResolver = null
     /** @type {import('vscode').Range|null} Last visible range in editor for scroll direction detection */
     this.lastVisibleRange = null
     /** @type {string[]} Files in current preview context (current + neighbors) */
@@ -91,6 +95,9 @@ class StateManager {
 
   /** Called when the panel is disposed. */
   onPanelDisposed() {
+    // If we are intentionally replacing the panel, don't reset state —
+    // the new panel is already being set up by the caller.
+    if (this._replacingPanel) return
     this.panel = null
     this.autoPreviewActive = false
     this.disposeListeners()

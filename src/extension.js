@@ -7,9 +7,12 @@ const { StateManager } = require('./vscode/stateManager')
 const { PreviewManager } = require('./vscode/previewManager')
 const { exportHtml } = require('./vscode/exportHtml')
 const { exportDocx } = require('./vscode/exportDocx')
-const { compareDocx } = require('./vscode/compareDocx')
-const { NOT_CONFIGURED_MSG, pickCommit, extractFilesFromCommit } = require('./vscode/helpers')
+const { NOT_CONFIGURED_MSG, pickCommit, pickVersions } = require('./vscode/helpers')
 const { getRepoRoot } = require('specpress/lib/common/gitHelpers')
+const { createCommitResolver } = require('specpress/lib/common/fileResolver')
+const { cleanupDiagramCache } = require('specpress/lib/common/diagramCache')
+
+const _cleanupTimers = new Map()
 const { JsonTableEditorProvider } = require('./vscode/jsonTableEditor')
 const { CommentManager } = require('./vscode/commenting/commentManager')
 const { CommentDecorationManager } = require('./vscode/commenting/commentDecorations')
@@ -70,7 +73,7 @@ function activate(context) {
   commentTreeProvider = new CommentTreeProvider(commentMgr, config)
   commentDetailViewProvider = new CommentDetailViewProvider(commentMgr, config, extensionDir)
   commentFilterViewProvider = new CommentFilterViewProvider(commentTreeProvider)
-  
+
   // Connect tree provider to detail view provider for bold styling
   commentDetailViewProvider.setTreeProvider(commentTreeProvider)
 
@@ -83,10 +86,10 @@ function activate(context) {
         decorationMgr.clear()
         decorationMgr.updateDecorations(editor, config)
       }
-      
+
       // Refresh tree view
       commentTreeProvider.refresh()
-      
+
       // Refresh detail view if showing a comment
       if (commentDetailViewProvider.currentComment && commentDetailViewProvider.currentSpecRoot) {
         commentDetailViewProvider.updateView()
@@ -110,21 +113,22 @@ function activate(context) {
       if (e.selection.length > 0) {
         const selected = e.selection[0]
         if (selected && selected.comment) {
-          logger.log('Selected comment', { 
-            commentId: selected.comment.commentId, 
+          logger.log('Selected comment', {
+            commentId: selected.comment.commentId,
             isReply: !!selected.comment.replyTo,
             suppressRefresh: commentTreeProvider.suppressRefresh
           })
-          
+
           // Update the selected comment indicator WITHOUT refreshing
           commentTreeProvider.setSelectedComment(selected.comment.commentId, false)
-          
+
           // Show in detail view
           const specRoot = selected.specRoot || selected.comment.specRoot
           if (specRoot) {
             commentDetailViewProvider.showComment(selected.comment, specRoot)
           }
-        }
+
+            }
       }
     })
   )
@@ -172,10 +176,10 @@ function activate(context) {
         const filePath = doc.uri.fsPath
         if (config.isInsideSpecRoot(filePath)) {
           const specRoot = config.getSpecRootForFile(filePath)
-          
+
           // Auto-update comment positions if safe (fires onDidChange if updates occur)
           const result = await commentMgr.autoUpdateOnSave(doc, specRoot)
-          
+
           if (result.count > 0) {
             const details = result.details.join(', ')
             vscode.window.showInformationMessage(
@@ -183,8 +187,17 @@ function activate(context) {
               'OK'
             )
           }
+
+          // Debounced cleanup of stale diagram cache SVGs (5s after last save)
+          if (/\.(md|asn)$/i.test(filePath)) {
+            if (_cleanupTimers.has(specRoot)) clearTimeout(_cleanupTimers.get(specRoot))
+            _cleanupTimers.set(specRoot, setTimeout(() => {
+              _cleanupTimers.delete(specRoot)
+              try { cleanupDiagramCache(specRoot, { mermaidConfig: config.loadMermaidConfig() }) } catch (e) {}
+            }, 5000))
+          }
         }
-        
+
         // Update decorations and tree (onDidChange already handled this if auto-update occurred)
         decorationMgr.clear()
         await decorationMgr.updateDecorations(editor, config)
@@ -286,10 +299,11 @@ function activate(context) {
         canSelectFolders: true,
         filters: { 'Markdown': ['md', 'markdown', 'asn'] }
       }))
-
       if (!uris) return
 
       let commitRef = null
+      let baselineRef = null
+
       if (!options || !options.skipCommitPicker) {
         let repoRoot
         try {
@@ -297,21 +311,28 @@ function activate(context) {
         } catch (e) { /* not a git repo */ }
 
         if (repoRoot) {
-          const picked = await pickCommit(repoRoot, 'Select version for preview', { localFilesOption: true })
-          if (picked === null) return
-          if (picked) {
-            try {
-              const shortHash = execSync(`git rev-parse --short ${picked}`, { cwd: repoRoot, encoding: 'utf8' }).trim()
-              commitRef = { repoRoot, commit: picked, shortHash }
-            } catch (e) {
-              vscode.window.showErrorMessage(`Invalid commit reference: ${picked}`)
-              return
-            }
+          const versions = await pickVersions(
+            repoRoot,
+            'Select base version to preview',
+            'Compare against (select to show tracked changes, or choose None to skip)'
+          )
+          if (versions === null) return
+          // commitRef: null = local, otherwise { repoRoot, commit, shortHash }
+          const base = versions[0]
+          commitRef = base.shortHash ? { repoRoot, commit: base.commitInput, shortHash: base.shortHash } : null
+          const compare = versions.length > 1 ? versions[1] : null
+          if (compare) {
+            baselineRef = compare.shortHash
+              ? { repoRoot, commit: compare.commitInput, shortHash: compare.shortHash }
+              : 'local'
           }
         }
+      } else if (options.restoreBaselineRef !== undefined) {
+        baselineRef = options.restoreBaselineRef
+        commitRef = options.restoreCommitRef || null
       }
 
-      await previewMgr.previewMultiple(uris, commitRef)
+      await previewMgr.previewMultiple(uris, commitRef, baselineRef)
       state.autoPreviewActive = true
     }),
 
@@ -331,16 +352,20 @@ function activate(context) {
       await exportDocx(state, config, context, uri, uris)
     }),
 
-    vscode.commands.registerCommand('specpress.compareDocx', async (uri, allUris) => {
+    vscode.commands.registerCommand('specpress.exportHtml', async (uri, allUris) => {
       if (!config.resolveSpecRoots().length) {
         vscode.window.showWarningMessage(NOT_CONFIGURED_MSG)
         return
       }
-      await compareDocx(state, config, context, uri, allUris)
+      await exportHtml(state, config, extensionDir, uri, allUris)
     }),
 
-    vscode.commands.registerCommand('specpress.exportHtml', async () => {
-      await exportHtml(state, config, previewMgr)
+    vscode.commands.registerCommand('specpress.exportSelectedAsHtml', async (uri, allUris) => {
+      if (!config.resolveSpecRoots().length) {
+        vscode.window.showWarningMessage(NOT_CONFIGURED_MSG)
+        return
+      }
+      await exportHtml(state, config, extensionDir, uri, allUris)
     }),
 
     vscode.commands.registerCommand('specpress.editSection', () => {
@@ -384,17 +409,23 @@ function activate(context) {
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: 'Loading baseline for change tracking...' },
         async () => {
-          const searchPaths = specRoots.length > 0 ? specRoots : [config.wsRoot]
-          const baselineCache = extractFilesFromCommit(repoRoot, baselineCommit, searchPaths)
+          const specRoot = specRoots.length > 0 ? specRoots[0] : (config.wsRoot || '')
+          const resolver = createCommitResolver(repoRoot, specRoot, baselineCommit)
+
+          // Set resolveImageUri on the resolver so baseline images resolve in the preview
+          if (state.panel) {
+            resolver.resolveImageUri = (absPath) =>
+              state.panel.webview.asWebviewUri(vscode.Uri.file(resolver.getAbsPath(absPath))).toString()
+          }
 
           state.changeTrackingCommit = baselineCommit
           state.changeTrackingRepoRoot = repoRoot
-          state.changeTrackingBaseline = baselineCache
+          state.changeTrackingResolver = resolver
           vscode.commands.executeCommand('setContext', 'specpress.changeTrackingActive', true)
 
           let shortHash
           try { shortHash = execSync(`git rev-parse --short ${baselineCommit}`, { cwd: repoRoot, encoding: 'utf8' }).trim() } catch (e) { shortHash = baselineCommit.substring(0, 7) }
-          vscode.window.showInformationMessage(`SpecPress: Change tracking enabled (baseline: ${shortHash}, ${baselineCache.size} files cached).`)
+          vscode.window.showInformationMessage(`SpecPress: Change tracking enabled (baseline: ${shortHash}).`)
         }
       )
 
@@ -409,7 +440,7 @@ function activate(context) {
     vscode.commands.registerCommand('specpress.disableChangeTracking', async () => {
       state.changeTrackingCommit = null
       state.changeTrackingRepoRoot = null
-      state.changeTrackingBaseline = null
+      state.changeTrackingResolver = null
       vscode.commands.executeCommand('setContext', 'specpress.changeTrackingActive', false)
       vscode.window.showInformationMessage('SpecPress: Change tracking disabled.')
       // Refresh current preview without diff
@@ -438,7 +469,11 @@ function activate(context) {
         const visibleLine = editor.visibleRanges[0]?.start.line || 0
         state.restoreScrollTarget = { file: editor.document.uri.fsPath, line: visibleLine }
       }
-      vscode.commands.executeCommand('specpress.previewMultiple', uris[0], uris, { skipCommitPicker: true })
+      vscode.commands.executeCommand('specpress.previewMultiple', uris[0], uris, {
+        skipCommitPicker: true,
+        restoreCommitRef: state.lastMultiFileCommitRef || null,
+        restoreBaselineRef: state.lastMultiFileBaselineRef || null
+      })
     }),
 
     vscode.commands.registerCommand('specpress.addComment', async () => {
@@ -473,7 +508,7 @@ function activate(context) {
           const oldCol = comment.columnNumber !== undefined ? comment.columnNumber : 0
           const lineNumber = editor.selection.active.line
           const columnNumber = editor.selection.active.character
-          
+
           // Show confirmation with old and new positions
           const oldSnippet = (comment.lineSnippet || '').substring(0, 40).replace(/[\r\n]/g, '↵')
           const confirm = await vscode.window.showInformationMessage(
@@ -482,18 +517,18 @@ function activate(context) {
             'Move'
           )
           if (confirm !== 'Move') return
-          
+
           // Extract snippet using centralized function
           const snippet = extractSnippet(editor.document, editor.selection.active)
 
           const commentPath = path.join(commentMgr.getCommentFolder(specRoot), comment.commentId)
           const content = JSON.parse(fs.readFileSync(commentPath, 'utf8'))
-          
+
           content.lineNumber = lineNumber
           content.columnNumber = columnNumber
           content.lineSnippet = snippet
           content.updatedAt = new Date().toISOString()
-          
+
           fs.writeFileSync(commentPath, JSON.stringify(content, null, 2))
           commentMgr.invalidateCache(specRoot)
 
@@ -550,7 +585,7 @@ function activate(context) {
       const relativeUri = path.relative(specRoot, filePath).replace(/\\/g, '/')
 
       const fileItems = await commentTreeProvider.getFileItems()
-      
+
       // Collapse all items first
       for (const fileItem of fileItems) {
         try {
@@ -587,7 +622,7 @@ function activate(context) {
 
         // Show comment details in sidebar
         commentDetailViewProvider.showComment(comment, specRoot)
-        
+
         // Select in tree (which will handle expansion)
         await selectCommentInTree(commentTreeProvider, treeView, comment, specRoot)
       } catch (e) {
@@ -599,7 +634,7 @@ function activate(context) {
       // Find the comment by ID
       const commentFolder = commentMgr.getCommentFolder(specRoot)
       const commentPath = path.join(commentFolder, commentId)
-      
+
       if (!fs.existsSync(commentPath)) {
         vscode.window.showErrorMessage('Comment not found')
         return
@@ -635,35 +670,35 @@ function activate(context) {
    * Find and select a comment in the tree view
    */
   async function selectCommentInTree(treeProvider, treeView, comment, specRoot) {
-    logger.log('=== selectCommentInTree START ===', { 
-      commentId: comment.commentId, 
+    logger.log('=== selectCommentInTree START ===', {
+      commentId: comment.commentId,
       isReply: !!comment.replyTo,
       replyTo: comment.replyTo
     })
-    
+
     // Suppress refresh during programmatic selection to preserve expansion state
     treeProvider.suppressRefresh = true
     logger.log('Set suppressRefresh = true')
-    
+
     try {
       await new Promise(resolve => setTimeout(resolve, 100))
       logger.log('Initial delay complete')
 
       const rootItems = await treeProvider.getChildren()
       logger.log('Got root items', { count: rootItems.length })
-      
+
       for (const fileItem of rootItems) {
         if (fileItem.comment.fileUri === comment.fileUri && fileItem.comment.specRoot === specRoot) {
           logger.log('Found matching file item', { fileUri: fileItem.comment.fileUri })
-          
+
           await treeView.reveal(fileItem, { expand: true, select: false, focus: false })
           logger.log('Revealed file item')
-          
+
           await new Promise(resolve => setTimeout(resolve, 50))
-          
+
           const commentItems = await treeProvider.getChildren(fileItem)
           logger.log('Got comment items', { count: commentItems.length })
-          
+
           if (comment.replyTo) {
             logger.log('This is a reply, looking for parent')
             let parentItem = null
@@ -674,17 +709,17 @@ function activate(context) {
                 break
               }
             }
-            
+
             if (parentItem) {
               logger.log('Revealing parent with expand=true')
               await treeView.reveal(parentItem, { expand: true, select: false, focus: false })
               logger.log('Parent revealed, waiting 150ms')
-              
+
               await new Promise(resolve => setTimeout(resolve, 150))
-              
+
               const replyItems = await treeProvider.getChildren(parentItem)
               logger.log('Got reply items', { count: replyItems.length })
-              
+
               for (const replyItem of replyItems) {
                 if (replyItem.comment.commentId === comment.commentId) {
                   logger.log('Found reply item, revealing with select=true')
@@ -700,7 +735,7 @@ function activate(context) {
               if (commentItem.comment.commentId === comment.commentId) {
                 const hasReplies = treeProvider.hasReplies(comment.commentId, specRoot)
                 logger.log('Found comment item', { hasReplies })
-                
+
                 if (hasReplies) {
                   logger.log('Comment has replies - expanding with level 3')
                   await treeView.reveal(commentItem, { expand: 3, select: true, focus: true })
@@ -713,6 +748,7 @@ function activate(context) {
               }
             }
           }
+
         }
       }
     } finally {
@@ -759,13 +795,13 @@ function activate(context) {
       if (e.affectsConfiguration('specpress')) {
         config.invalidate()
         state.handler = null
-        
+
         // Update logger enabled state
         if (e.affectsConfiguration('specpress.enableDebugLogging')) {
           const enableLogging = config.raw.get('enableDebugLogging', false)
           logger.setEnabled(enableLogging)
         }
-        
+
         // Refresh section decorations if relevant settings changed
         if (e.affectsConfiguration('specpress.deriveSectionNumbers') ||
             e.affectsConfiguration('specpress.specificationRootPath')) {

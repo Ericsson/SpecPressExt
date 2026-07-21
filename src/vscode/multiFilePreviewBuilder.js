@@ -1,24 +1,25 @@
 const vscode = require('vscode')
 const path = require('path')
-const fs = require('fs')
 const { collectFiles, concatenateFiles } = require('specpress/lib/common/specProcessor')
-const { getFileFromCommit, collectFilesFromCommit } = require('specpress/lib/common/gitHelpers')
+const { collectFilesFromCommit } = require('specpress/lib/common/gitHelpers')
+const { createLocalResolver, createCommitResolver } = require('specpress/lib/common/fileResolver')
+const { getRepoRoot } = require('specpress/lib/common/gitHelpers')
 const { insertOmittedMarkers } = require('./helpers')
-const { loadCRCoverPage } = require('./crCoverPageHelper')
-const { applyDiff } = require('./diffRenderer')
-const { selectCoverPage } = require('./coverPageSelector')
+const { diffHtml } = require('specpress/lib/md2html/htmlDiff')
 
 /**
  * Builds and displays a multi-file preview.
  *
- * @param {Object} state - StateManager instance.
- * @param {Object} config - ConfigLoader instance.
- * @param {Function} ensureHandler - Function to ensure handler is initialized.
- * @param {Function} registerMessageHandler - Function to register webview message handler.
- * @param {vscode.Uri[]} uris - Selected file/folder URIs.
- * @param {{ repoRoot: string, commit: string, shortHash: string }|null} commitRef - Git commit reference, or null for local files.
+ * @param {Object} state
+ * @param {Object} config
+ * @param {Function} ensureHandler - `(specRoot) => void`
+ * @param {Function} registerMessageHandler
+ * @param {Function} buildResourceRoots - `() => vscode.Uri[]` — roots for current resolver only
+ * @param {vscode.Uri[]} uris
+ * @param {{ repoRoot: string, commit: string, shortHash: string }|null} commitRef - base version
+ * @param {{ repoRoot: string, commit: string, shortHash: string }|'local'|null} baselineRef - compare version (null = no diff)
  */
-async function previewMultiple(state, config, ensureHandler, registerMessageHandler, uris, commitRef) {
+async function previewMultiple(state, config, ensureHandler, registerMessageHandler, buildResourceRoots, uris, commitRef, baselineRef) {
   console.log('[SpecPress] previewMultiple called with', uris.length, 'URIs')
 
   state.disposeListeners()
@@ -26,6 +27,8 @@ async function previewMultiple(state, config, ensureHandler, registerMessageHand
   vscode.commands.executeCommand('setContext', 'specpress.isMultiFilePreview', true)
   state.currentEditor = null
   state.lastMultiFileUris = uris
+  state.lastMultiFileCommitRef = commitRef
+  state.lastMultiFileBaselineRef = baselineRef
   state.isSpecRootPreview = config.isSpecRootSelection(uris)
   state.contextStartIdx = -1
   state.contextEndIdx = -1
@@ -41,58 +44,74 @@ async function previewMultiple(state, config, ensureHandler, registerMessageHand
 
       const filePaths = files.filter(f => f.endsWith('.md') || f.endsWith('.markdown'))
 
-      // Build image cache from git commit if viewing a commit
-      let imageCache = null
-      if (commitRef) {
-        const { extractFilesFromCommit } = require('./helpers')
-        const specRoots = files.length > 0 ? [config.getSpecRootForFile(files[0])] : []
-        imageCache = extractFilesFromCommit(commitRef.repoRoot, commitRef.commit, specRoots)
-      }
+      // Always use findSpecRootFor (works regardless of deriveSectionNumbers setting)
+      const specRoot = files.length > 0 ? config.findSpecRootFor(files[0]) : ''
+      const sectionSpecRoot = files.length > 0 ? config.getSpecRootForFile(files[0]) : ''
 
-      ensureHandler()
-
-      // Override image resolver for git commits
-      if (commitRef && imageCache) {
-        const normPath = (p) => p.replace(/\\/g, '/').toLowerCase()
-        state.handler.resolveImageUri = (absPath) => {
-          let imgData = imageCache.get(absPath)
-          if (!imgData) {
-            const target = normPath(absPath)
-            for (const [key, val] of imageCache) {
-              if (normPath(key) === target) { imgData = val; break }
-            }
-          }
-          if (imgData && Buffer.isBuffer(imgData)) {
-            const ext = absPath.split('.').pop().toLowerCase()
-            const mime = ext === 'svg' ? 'image/svg+xml' : `image/${ext === 'jpg' ? 'jpeg' : ext}`
-            return `data:${mime};base64,${imgData.toString('base64')}`
-          }
-          return state.panel ? state.panel.webview.asWebviewUri(vscode.Uri.file(absPath)).toString() : absPath
-        }
+      // Build resolver for the base (old) version
+      let oldResolver
+      if (commitRef && specRoot) {
+        oldResolver = createCommitResolver(commitRef.repoRoot, specRoot, commitRef.commit)
       } else {
-        state.handler.resolveImageUri = (absPath) => state.panel ? state.panel.webview.asWebviewUri(vscode.Uri.file(absPath)).toString() : absPath
+        let repoRoot = specRoot || config.wsRoot || ''
+        try { repoRoot = getRepoRoot(repoRoot) } catch (e) { /* not a git repo */ }
+        oldResolver = createLocalResolver(repoRoot, specRoot || repoRoot)
       }
 
-      const specRoot = files.length > 0 ? config.getSpecRootForFile(files[0]) : ''
+      // Build resolver for the compare (new) version, if requested
+      let compareResolver = null
+      if (baselineRef === 'local') {
+        let repoRoot = specRoot || config.wsRoot || ''
+        try { repoRoot = getRepoRoot(repoRoot) } catch (e) { /* not a git repo */ }
+        compareResolver = createLocalResolver(repoRoot, specRoot || repoRoot)
+      } else if (baselineRef && specRoot) {
+        compareResolver = createCommitResolver(baselineRef.repoRoot, specRoot, baselineRef.commit)
+      }
 
-      // Select cover page if at spec root
+      // state.currentResolver drives the handler — use compare resolver when diffing
+      state.currentResolver = compareResolver || oldResolver
+
+      if (state.panel) {
+        state._replacingPanel = true
+        state.panel.dispose()
+        state._replacingPanel = false
+        state.panel = null
+      }
+
+      // localResourceRoots: current (compare) resolver + old resolver (if diff)
+      // buildResourceRoots() uses state.currentResolver which is now set correctly
+      const resourceRoots = buildResourceRoots()
+      if (compareResolver) resourceRoots.push(vscode.Uri.file(oldResolver.rootDir))
+
+      state.panel = vscode.window.createWebviewPanel('specpressPreview', 'Multiple Files Preview',
+        vscode.ViewColumn.Beside, { enableScripts: true, localResourceRoots: resourceRoots })
+      state.panel.onDidDispose(() => state.onPanelDisposed())
+      registerMessageHandler()
+
+      // Set resolveImageUri on resolvers now that the panel exists
+      // Must be done BEFORE ensureHandler so initHandler sees them already set
+      const makeResolveUri = (r) => (absPath) =>
+        state.panel.webview.asWebviewUri(vscode.Uri.file(r.getAbsPath(absPath))).toString()
+      oldResolver.resolveImageUri = makeResolveUri(oldResolver)
+      if (compareResolver) compareResolver.resolveImageUri = makeResolveUri(compareResolver)
+      state.handler = null
+      ensureHandler(sectionSpecRoot)
+
+      // Load cover page data if at spec root — prompt user to select
       let frontPageData = null
       let crCoverPageData = null
-
       if (state.isSpecRootPreview) {
+        const { selectCoverPage } = require('./coverPageSelector')
         const coverPageChoice = await selectCoverPage(config, specRoot)
-        if (!coverPageChoice) return // User cancelled
-
-        if (coverPageChoice.type === 'cr') {
-          crCoverPageData = coverPageChoice.crData
-        } else if (coverPageChoice.type === 'standard') {
-          frontPageData = config.loadFrontPageData()
-        }
-        // else: type === 'none', both remain null
+        if (!coverPageChoice) return  // user cancelled
+        frontPageData = coverPageChoice.type === 'standard' ? coverPageChoice.frontPage : null
+        crCoverPageData = coverPageChoice.type === 'cr' ? coverPageChoice.crData : null
       }
 
-      const readFile = commitRef ? (f) => getFileFromCommit(commitRef.repoRoot, f, commitRef.commit) : undefined
-      let processedContent = concatenateFiles(files, readFile, specRoot)
+      const readFile = commitRef
+        ? (f) => oldResolver.readFile(f, 'utf8')
+        : undefined
+      let processedContent = concatenateFiles(files, readFile, sectionSpecRoot)
       if (specRoot && !state.isSpecRootPreview) {
         const allFiles = collectFiles([specRoot])
         if (files.length < allFiles.length) {
@@ -107,24 +126,60 @@ async function previewMultiple(state, config, ensureHandler, registerMessageHand
 
       const baseDir = config.wsRoot || state.multiFileBaseDir
 
-      if (!state.panel) {
-        const resourceRoot = (files.length > 0 ? config.findSpecRootFor(files[0]) : '')
-          || config.wsRoot
-          || baseDir
-        const cachedDir = path.join(path.dirname(resourceRoot), 'cached')
-        const resourceRoots = [vscode.Uri.file(resourceRoot)]
-        if (fs.existsSync(cachedDir)) resourceRoots.push(vscode.Uri.file(cachedDir))
-        state.panel = vscode.window.createWebviewPanel('specpressPreview', 'Multiple Files Preview',
-          vscode.ViewColumn.Beside, { enableScripts: true, localResourceRoots: resourceRoots })
-        state.panel.onDidDispose(() => state.onPanelDisposed())
-        registerMessageHandler()
+      // Build title
+      const baseLabel = commitRef ? commitRef.shortHash : 'local'
+      const baselineLabel = baselineRef === 'local' ? 'local' : baselineRef ? baselineRef.shortHash : null
+      state.panel.title = baselineLabel
+        ? `Preview (${baseLabel} vs ${baselineLabel})`
+        : commitRef ? `Preview (${baseLabel})` : 'Multiple Files Preview'
+
+      // commitRef = old/base version (processedContent), baselineRef = new/compare version
+      // For diff: baseline (old) = commitRef content, current (new) = baselineRef content
+      let html
+
+      if (compareResolver) {
+        // Read the new (compare) version content
+        // Collect files independently so renamed/added files are included
+        const compareFiles = baselineRef === 'local'
+          ? collectFiles(uris.map(u => u.fsPath))
+          : collectFilesFromCommit(baselineRef.repoRoot, uris.map(u => u.fsPath), baselineRef.commit)
+        const compareContent = concatenateFiles(
+          compareFiles,
+          (f) => compareResolver.readFile(f, 'utf8'),
+          sectionSpecRoot
+        )
+
+        // Resolve compare-version front page data
+        let compareFrontPageData = frontPageData
+        if (frontPageData && !crCoverPageData) {
+          const dataFile = config.frontPageData
+          if (dataFile) {
+            const compareJson = compareResolver.readFileOrNull(dataFile, 'utf8')
+            if (compareJson) {
+              try { compareFrontPageData = JSON.parse(compareJson) } catch (e) { /* use current */ }
+            }
+          }
+        }
+
+        // Render the compare version as the HTML shell (for <head>, scripts, etc.)
+        // diffHtml re-renders both versions internally with stable relative paths
+        html = state.handler.renderMarkdown(compareContent, baseDir, null, sectionSpecRoot, compareFrontPageData, crCoverPageData)
+        const bodyMatch = html.match(/<body>([\s\S]*)<\/body>/)
+        if (bodyMatch) {
+          const diffBody = diffHtml({
+            baselineContent: processedContent,
+            currentContent: compareContent,
+            handler: state.handler,
+            baselineFileResolver: oldResolver,
+            frontPageData,
+            crCoverPageData,
+          })
+          html = html.replace(bodyMatch[0], '<body>' + diffBody + '</body>')
+        }
+      } else {
+        html = state.handler.renderMarkdown(processedContent, baseDir, null, sectionSpecRoot, frontPageData, crCoverPageData)
       }
 
-      state.panel.title = commitRef ? `Preview (${commitRef.shortHash})` : (state.changeTrackingCommit ? 'Preview (changes)' : 'Multiple Files Preview')
-      let html = state.handler.renderMarkdown(processedContent, baseDir, null, specRoot, frontPageData, crCoverPageData)
-      if (!commitRef) {
-        html = applyDiff(state, state.handler, config, html, processedContent, null, files, { baseDir, specRoot, frontPageData, crCoverPageData })
-      }
       state.panel.webview.html = html
     } catch (error) {
       vscode.window.showErrorMessage(`SpecPress preview failed: ${error.message}`)
@@ -144,8 +199,8 @@ async function previewMultiple(state, config, ensureHandler, registerMessageHand
     console.error('Preview error:', error)
   }
 
-  // Re-render multi-file preview when spec files are saved
-  if (!commitRef) {
+  // Re-render multi-file preview when spec files are saved (local base, no diff)
+  if (!commitRef && !baselineRef) {
     state.fileSaveListener = vscode.workspace.onDidSaveTextDocument(doc => {
       if (!state.panel || !state.isMultiFilePreview) return
       const ext = path.extname(doc.fileName).toLowerCase()

@@ -31,15 +31,35 @@ const { applyDiff } = require('../../src/vscode/diffRenderer')
 
 /** Creates a minimal state object with change tracking enabled. */
 function makeState(baselineMap) {
+  // Create a mock FileResolver backed by the map
+  const map = new Map(Object.entries(baselineMap))
+  const normPath = (p) => p.replace(/\\/g, '/').toLowerCase()
+  const find = (absPath) => {
+    if (map.has(absPath)) return map.get(absPath)
+    const target = normPath(absPath)
+    for (const [key, val] of map) {
+      if (normPath(key) === target) return val
+    }
+    return null
+  }
+  const resolver = {
+    readFile: (absPath, encoding) => {
+      const val = find(absPath)
+      if (val == null) throw new Error(`Not found: ${absPath}`)
+      return val
+    },
+    readFileOrNull: (absPath, encoding) => find(absPath),
+    exists: (absPath) => find(absPath) != null
+  }
   return {
     changeTrackingCommit: 'abc123',
-    changeTrackingBaseline: new Map(Object.entries(baselineMap))
+    changeTrackingResolver: resolver
   }
 }
 
 /** Creates a minimal state with change tracking disabled. */
 function makeDisabledState() {
-  return { changeTrackingCommit: null, changeTrackingBaseline: null }
+  return { changeTrackingCommit: null, changeTrackingResolver: null }
 }
 
 /** Creates a mock handler that wraps content in <p> tags. */
@@ -78,7 +98,7 @@ test('returns original HTML when change tracking is disabled', () => {
 })
 
 test('returns original HTML when changeTrackingBaseline is null', () => {
-  const state = { changeTrackingCommit: 'abc', changeTrackingBaseline: null }
+  const state = { changeTrackingCommit: 'abc', changeTrackingResolver: null }
   const handler = makeHandler()
   const config = makeConfig()
   const html = wrapHtml('<p>hello</p>')
@@ -340,20 +360,26 @@ test('injects data-source-file from FILE comment markers', () => {
 console.log('\napplyDiff - front page and CR cover page in change tracking')
 
 test('baseline uses standard front page when no crCoverPageData', () => {
+  const frontData = { SPEC_NUMBER: '38.101' }
   const state = makeState({ '/file.md': 'hello' })
-  let baselineIncludedFront = false
+  // Patch the resolver to also serve the front page JSON
+  const origReadFileOrNull = state.changeTrackingResolver.readFileOrNull
+  state.changeTrackingResolver.readFileOrNull = (p, enc) => {
+    if (p === '/front.json') return JSON.stringify(frontData)
+    return origReadFileOrNull(p, enc)
+  }
+  let baselineFrontPageData = undefined
   const handler = {
-    frontPageHtml: '<div class="front-page">SPEC FRONT</div>',
-    renderBody(content, forPreview, baseDir, filePath, specRoot, includeFrontPage, crCoverPageData) {
-      if (includeFrontPage && !crCoverPageData) baselineIncludedFront = true
-      const body = content.split('\n').filter(l => l.trim() && !l.startsWith('<!--')).map(l => `<p>${l.trim()}</p>`).join('\n')
-      return includeFrontPage && !crCoverPageData ? '<div class="front-page">SPEC FRONT</div>' + body : body
+    frontPageHtml: null,
+    renderBody(content, forPreview, baseDir, filePath, specRoot, frontPageData, crCoverPageData) {
+      baselineFrontPageData = frontPageData
+      return content.split('\n').filter(l => l.trim() && !l.startsWith('<!--')).map(l => `<p>${l.trim()}</p>`).join('\n')
     }
   }
-  const config = makeConfig()
-  const currentHtml = wrapHtml('<div class="front-page">SPEC FRONT</div><p>hello</p>')
-  applyDiff(state, handler, config, currentHtml, 'hello', '/file.md', null, { baseDir: '/', includeFrontPage: true })
-  assert.ok(baselineIncludedFront, 'baseline should include standard front page')
+  const config = { frontPageData: '/front.json' }
+  const currentHtml = wrapHtml('<p>hello</p>')
+  applyDiff(state, handler, config, currentHtml, 'hello', '/file.md', null, { baseDir: '/', frontPageData: frontData })
+  assert.deepStrictEqual(baselineFrontPageData, frontData, 'baseline should include standard front page')
 })
 
 test('baseline uses CR cover page when crCoverPageData is provided', () => {

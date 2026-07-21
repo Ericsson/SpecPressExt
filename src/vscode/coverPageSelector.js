@@ -2,8 +2,6 @@ const vscode = require('vscode')
 const path = require('path')
 const { detectCRCoverPage } = require('specpress/lib/common/crCoverPageDetector')
 const { loadCRCoverPageData } = require('specpress/lib/common/crCoverPageLoader')
-const { buildFrontPageDocx } = require('specpress/lib/md2docx/frontPage')
-
 /**
  * Prompts the user to select a cover page type for export.
  * Detects available options (CR cover page, standard front page) and presents them.
@@ -86,15 +84,7 @@ async function selectCoverPage(config, specRoot) {
 
   if (choice.value === 'standard') {
     const data = config.loadFrontPageData()
-    if (data) {
-      try {
-        const frontPage = buildFrontPageDocx(data)
-        return { type: 'standard', frontPage }
-      } catch (e) {
-        vscode.window.showWarningMessage(`Front page generation failed: ${e.message}`)
-        return null
-      }
-    }
+    if (data) return { type: 'standard', frontPage: data }
   }
 
   return { type: 'none' }

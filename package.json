@@ -99,8 +99,8 @@
         "title": "SpecPress: Export Selected to DOCX"
       },
       {
-        "command": "specpress.compareDocx",
-        "title": "SpecPress: Export Selected as DOCX DIFF"
+        "command": "specpress.exportSelectedAsHtml",
+        "title": "SpecPress: Export Selected to HTML"
       },
       {
         "command": "specpress.preview",
@@ -296,7 +296,7 @@
           "group": "specpress@2"
         },
         {
-          "command": "specpress.compareDocx",
+          "command": "specpress.exportSelectedAsHtml",
           "group": "specpress@3"
         },
         {
@@ -327,19 +327,14 @@
           "group": "specpress@0"
         },
         {
-          "command": "specpress.exportHtml",
-          "when": "webviewId == 'specpressPreview'",
-          "group": "specpress@1"
-        },
-        {
           "command": "specpress.editSection",
           "when": "webviewId == 'specpressPreview' && specpress.isMultiFilePreview",
-          "group": "specpress@2"
+          "group": "specpress@1"
         },
         {
           "command": "specpress.restoreMultiPreview",
           "when": "webviewId == 'specpressPreview' && !specpress.isMultiFilePreview",
-          "group": "specpress@3"
+          "group": "specpress@2"
         }
       ],
       "editor/context": [

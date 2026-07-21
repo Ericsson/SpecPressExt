@@ -1,5 +1,6 @@
 const path = require('path')
 const { concatenateFiles } = require('specpress/lib/common/specProcessor')
+const { collectFilesFromCommit } = require('specpress/lib/common/gitHelpers')
 const { diffHtml } = require('specpress/lib/md2html/htmlDiff')
 
 /**
@@ -17,37 +18,39 @@ const { diffHtml } = require('specpress/lib/md2html/htmlDiff')
  * @returns {string} HTML with tracked changes, or original HTML if tracking disabled.
  */
 function applyDiff(state, handler, config, currentHtml, content, filePath, files, renderOpts) {
-  if (!state.changeTrackingCommit || !state.changeTrackingBaseline) return currentHtml
+  if (!state.changeTrackingCommit || !state.changeTrackingResolver) return currentHtml
 
-  const normPath = (p) => p.replace(/\\/g, '/').toLowerCase()
+  const resolver = state.changeTrackingResolver
 
-  // -- Step 1: Retrieve baseline content from the cached git commit --
+  // -- Step 1: Retrieve baseline content --
   let baselineContent = ''
   if (filePath) {
-    baselineContent = state.changeTrackingBaseline.get(filePath) || ''
-    if (!baselineContent) {
-      const target = normPath(filePath)
-      for (const [key, val] of state.changeTrackingBaseline) {
-        if (normPath(key) === target) { baselineContent = val; break }
-      }
-    }
+    baselineContent = resolver.readFileOrNull(filePath, 'utf8') || ''
   } else if (files) {
-    const specRoot = renderOpts.specRoot || ''
-    const getBaseline = (f) => {
-      if (state.changeTrackingBaseline.has(f)) return state.changeTrackingBaseline.get(f)
-      const target = normPath(f)
-      for (const [key, val] of state.changeTrackingBaseline) {
-        if (normPath(key) === target) return val
-      }
-      return ''
-    }
-    const baselineFiles = files.filter(f => getBaseline(f) !== '')
-    baselineContent = concatenateFiles(baselineFiles, getBaseline, specRoot)
+    // Collect files from the baseline commit independently — don't filter current
+    // file list, which misses renamed/deleted files from the baseline version.
+
+    // Get all body files (md, asn, ...) from the baseline's FileResolver:
+    let baselineFiles = resolver.listSpecFiles(true, true)
+
+    // Filter to files in the current range (to handle renames/deletes)
+    let firstCurrentFile = path.relative(state.currentResolver.specRoot, files[0])
+    let lastCurrentFile = path.relative(state.currentResolver.specRoot, files[files.length - 1])
+    baselineFiles = baselineFiles.filter(f => (
+      f >= firstCurrentFile &&
+      f <= lastCurrentFile)
+    )
+
+    // Concatenate baseline files (as they existed in the baseline commit):
+    const baselineFilesAbsLocal = baselineFiles.map(f => path.join(resolver.specRootAbsLocal, f))
+
+    // Concatenate and pre-process the selected baseline files of the specification
+    baselineContent = concatenateFiles(baselineFilesAbsLocal, (f) => resolver.readFile(f, 'utf8'), resolver.specRootAbsLocal)
   }
 
   if (!baselineContent) return currentHtml
 
-  // -- Step 2: Resolve JsonTable links from the baseline cache --
+  // -- Step 2: Resolve JsonTable links from the baseline --
   baselineContent = baselineContent.replace(/\r\n/g, '\n')
   baselineContent = baselineContent.replace(/\[JsonTable\]\(([^)]+\.json)\)/g, (match, jsonRelPath) => {
     try {
@@ -56,55 +59,32 @@ function applyDiff(state, handler, config, currentHtml, content, filePath, files
       const lastFile = fileComment ? fileComment[fileComment.length - 1].match(/<!-- FILE: (.+?) -->/)[1] : (filePath || (files && files[0]) || '')
       const dir = path.dirname(lastFile)
       const jsonPath = path.isAbsolute(jsonRelPath) ? jsonRelPath : path.join(dir, jsonRelPath)
-
-      let baselineJson = state.changeTrackingBaseline.get(jsonPath) || null
-      if (!baselineJson) {
-        const target = normPath(jsonPath)
-        for (const [key, val] of state.changeTrackingBaseline) {
-          if (normPath(key) === target) { baselineJson = val; break }
-        }
-      }
-      if (baselineJson) {
-        return '```jsonTable\n' + baselineJson + '\n```'
-      }
+      const baselineJson = resolver.readFileOrNull(jsonPath, 'utf8')
+      if (baselineJson) return '```jsonTable\n' + baselineJson + '\n```'
     } catch (e) { /* fall through */ }
     return match
   })
 
-  // -- Step 3: Resolve baseline front page data from cache --
+  // -- Step 3: Resolve baseline front page data --
   const frontPageData = renderOpts.frontPageData || null
   const crCoverPageData = renderOpts.crCoverPageData || null
   let baselineFrontPageData = frontPageData
   if (frontPageData && !crCoverPageData) {
-    const baselineFront = buildBaselineFrontPage(state, config, normPath)
+    const baselineFront = buildBaselineFrontPage(resolver, config)
     if (baselineFront !== null) baselineFrontPageData = baselineFront
   }
 
   // -- Step 4: Extract current body and strip source annotations for diffing --
-  const bodyMatch = currentHtml.match(/<body>([\s\S]*)<\/body>/)
-  if (!bodyMatch) return currentHtml
-
-  // Strip ASN.1 source spans for clean diffing; keep data-source-line for scroll sync
-  let cleanCurrentBody = bodyMatch[1]
-  cleanCurrentBody = cleanCurrentBody.replace(/(<pre class="asn"[^>]*><code>)([\s\S]*?)(<\/code><\/pre>)/g, (m, open, innerContent, close) => {
-    const fixed = innerContent
-      .replace(/<span data-source-line="[^"]*"(?:\s+data-source-file="[^"]*")?>/g, '')
-      .replace(/<\/span>\n/g, '\n')
-      .replace(/<\/span>$/, '')
-    return open + fixed + close
-  })
-  cleanCurrentBody = cleanCurrentBody.replace(/ data-source-file="[^"]*"/g, '')
+  // (No longer needed — diffHtml re-renders both versions internally with stable paths)
 
   // -- Step 5: Call specpress diffHtml --
   const diffBody = diffHtml({
     baselineContent,
     currentContent: content,
     handler,
-    specRoot: renderOpts.specRoot || '',
+    baselineFileResolver: resolver,
     frontPageData: baselineFrontPageData,
     crCoverPageData,
-    baseDir: renderOpts.baseDir || null,
-    currentBody: cleanCurrentBody
   })
 
   // -- Step 6: Re-inject data-source-file attributes for scroll sync --
@@ -130,26 +110,19 @@ function applyDiff(state, handler, config, currentHtml, content, filePath, files
     finalBody = finalBody.substring(0, seg.start) + segment + finalBody.substring(seg.end)
   }
 
+  const bodyMatch = currentHtml.match(/<body>([\s\S]*)<\/body>/)
+  if (!bodyMatch) return currentHtml
   return currentHtml.replace(bodyMatch[0], '<body>' + finalBody + '</body>')
 }
 
 /**
- * Retrieves baseline front page data from the git cache.
+ * Retrieves baseline front page data from the resolver.
  */
-function buildBaselineFrontPage(state, config, normPath) {
+function buildBaselineFrontPage(resolver, config) {
   const dataFile = config.frontPageData
   if (!dataFile) return null
-
-  const targetName = normPath(path.basename(dataFile))
-  let baselineDataJson = null
-  for (const [key, val] of state.changeTrackingBaseline) {
-    if (typeof val === 'string' && normPath(key).endsWith('/' + targetName)) {
-      baselineDataJson = val
-      break
-    }
-  }
+  const baselineDataJson = resolver.readFileOrNull(dataFile, 'utf8')
   if (!baselineDataJson) return null
-
   try {
     return JSON.parse(baselineDataJson)
   } catch (e) {

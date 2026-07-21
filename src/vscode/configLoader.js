@@ -188,7 +188,7 @@ class ConfigLoader {
   findSpecRootFor(filePath) {
     for (const root of this.resolveSpecRoots()) {
       const rel = path.relative(root, filePath)
-      if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return root
+      if (!rel.startsWith('..') && !path.isAbsolute(rel)) return root
     }
     return ''
   }

@@ -2,9 +2,10 @@ const vscode = require('vscode')
 const fs = require('fs')
 const path = require('path')
 const { execSync } = require('child_process')
-const { getRepoRoot, extractFilesFromCommit, makeCachedFileResolver, makeCachedTextReader } = require('specpress/lib/common/gitHelpers')
+const { getRepoRoot, collectFilesFromCommit } = require('specpress/lib/common/gitHelpers')
+const { createCommitResolver } = require('specpress/lib/common/fileResolver')
 const { collectFiles, concatenateFiles, insertOmittedMarkers } = require('specpress/lib/common/specProcessor')
-const { MarkdownToDocxConverter } = require('specpress/lib/md2docx/md2docx')
+const { Md2Docx } = require('specpress/lib/md2docx/md2docx')
 const { ensureMermaidBundle } = require('specpress/lib/md2docx/handlers/mermaidHandler')
 const { mergeDocxVersions, detectBackends } = require('specpress/lib/common/docxMerge')
 const { pickCommit, collectFilesFromUris, collectFilesFromCommitUris, makeMermaidRenderer, formatExportTimestamp, showExportNotification, generateCRFilename } = require('./helpers')
@@ -203,11 +204,6 @@ async function compareDocx(state, config, context, uri, allUris) {
 
         const crCoverPageData = coverPageChoice.crData || null
 
-        const searchPaths = [...new Set(uris.map(u => {
-          const p = u.fsPath
-          return fs.existsSync(p) && fs.statSync(p).isDirectory() ? p : path.dirname(p)
-        }))]
-
         // Generate DOCX for each version
         const docxFiles = []
         for (let i = 0; i < versions.length; i++) {
@@ -220,11 +216,12 @@ async function compareDocx(state, config, context, uri, allUris) {
 
           let readFile = undefined
           let fileResolver = null
+          const converterOpts = { updateFields: false }
 
           if (v.commitInput) {
-            const cache = extractFilesFromCommit(repoRoot, v.commitInput, searchPaths)
-            readFile = makeCachedTextReader(cache)
-            fileResolver = makeCachedFileResolver(cache)
+            const resolver = createCommitResolver(repoRoot, specRoot, v.commitInput)
+            readFile = (f) => resolver.readFile(f, 'utf8')
+            fileResolver = (f) => resolver.readFile(f)
           }
 
           let content = concatenateFiles(files, readFile, specRoot)
@@ -233,23 +230,17 @@ async function compareDocx(state, config, context, uri, allUris) {
             content = insertOmittedMarkers(content, files, allFiles)
           }
 
-          const tempMd = path.join(tmpDir, `.~diff_v${i + 1}_${timestamp}.md`)
-          fs.writeFileSync(tempMd, content)
-
           const docxPath = path.join(tmpDir, `specpress_diff_v${i + 1}_${v.label}_${timestamp}.docx`)
 
-          try {
-            const converter = new MarkdownToDocxConverter(
-              mermaidConfig,
-              specRoot,
-              makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot),
-              fileResolver,
-              { updateFields: false }
-            )
-            await converter.convert(tempMd, docxPath, path.dirname(files[0]), null, { crCoverPageData })
-          } finally {
-            if (fs.existsSync(tempMd)) fs.unlinkSync(tempMd)
+          const converterOptsWithRenderer = {
+            ...converterOpts,
+            mermaidConfig,
+            specRootPath: specRoot,
+            mermaidRenderer: makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot),
+            fileResolver: fileResolver || undefined
           }
+          const converter = new Md2Docx(converterOptsWithRenderer)
+          await converter.convert(content, docxPath, path.dirname(files[0]), null, { crCoverPageData })
 
           docxFiles.push(docxPath)
         }

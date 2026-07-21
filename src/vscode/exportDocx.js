@@ -1,17 +1,23 @@
 const vscode = require('vscode')
 const fs = require('fs')
 const path = require('path')
-const { execSync } = require('child_process')
-const { getRepoRoot, getFileFromCommit } = require('specpress/lib/common/gitHelpers')
+const { getRepoRoot } = require('specpress/lib/common/gitHelpers')
+const { createCommitResolver } = require('specpress/lib/common/fileResolver')
+const { cleanupDiagramCache } = require('specpress/lib/common/diagramCache')
 const { collectFiles, concatenateFiles, formatExportMessage } = require('specpress/lib/common/specProcessor')
-const { MarkdownToDocxConverter } = require('specpress/lib/md2docx/md2docx')
+const { Md2Docx } = require('specpress/lib/md2docx/md2docx')
 const { ensureMermaidBundle } = require('specpress/lib/md2docx/handlers/mermaidHandler')
 const { loadCRCoverPageData } = require('specpress/lib/common/crCoverPageLoader')
-const { pickCommit, collectFilesFromUris, collectFilesFromCommitUris, insertOmittedMarkers, makeMermaidRenderer, formatExportTimestamp, showExportNotification } = require('./helpers')
+const { mergeDocxVersions, detectBackends } = require('specpress/lib/common/docxMerge')
+const { pickVersions, collectFilesFromUris, collectFilesFromCommitUris, insertOmittedMarkers, makeMermaidRenderer, formatExportTimestamp, showExportNotification, generateCRFilename } = require('./helpers')
 const { selectCoverPage } = require('./coverPageSelector')
+
+const DEBUG_MODE = false
 
 /**
  * Handles the DOCX export command.
+ * For a single version: normal DOCX export.
+ * For 2-5 versions: DOCX diff with tracked changes (requires Word or LibreOffice).
  *
  * @param {import('./stateManager').StateManager} state
  * @param {import('./configLoader').ConfigLoader} config
@@ -46,32 +52,66 @@ async function exportDocx(state, config, context, uri, allUris) {
     repoRoot = null
   }
 
-  let commitInput = null
-  let shortHash = null
-  if (repoRoot) {
-    commitInput = await pickCommit(repoRoot, 'Select version for DOCX export', { localFilesOption: true })
-    if (commitInput === null) return
+  // Determine max versions based on available merge backend
+  const backends = repoRoot ? detectBackends() : null
+  const maxVersions = !backends ? 1
+    : backends.word ? 5
+    : backends.libreoffice ? 2
+    : 1
 
-    if (commitInput) {
-      try {
-        shortHash = execSync(`git rev-parse --short ${commitInput}`, { cwd: repoRoot, encoding: 'utf8' }).trim()
-      } catch (e) {
-        vscode.window.showErrorMessage(`Invalid commit reference: ${commitInput}`)
-        return
-      }
+  // Pick versions with author names interleaved
+  const versions = repoRoot
+    ? await pickVersions(repoRoot, 'Select version for DOCX export', 'Add version for DOCX diff (or choose None to export single version)', maxVersions, true)
+    : [{ commitInput: null, shortHash: null, label: 'local', authorName: null }]
+  if (versions === null) return
+
+  const isDiff = versions.length > 1
+
+  // For diff: check backend availability
+  if (isDiff) {
+    if (!backends || (!backends.word && !backends.libreoffice)) {
+      vscode.window.showErrorMessage('No merge backend available. Install Microsoft Word (Windows) or LibreOffice.')
+      return
     }
   }
 
-  const files = shortHash
-    ? collectFilesFromCommitUris(repoRoot, uris, commitInput)
+  const firstFiles = versions[0].commitInput
+    ? collectFilesFromCommitUris(repoRoot, uris, versions[0].commitInput)
     : collectFilesFromUris(uris)
-  if (files.length === 0) {
-    vscode.window.showErrorMessage(shortHash ? `No markdown or ASN.1 files found in ${commitInput}` : 'No markdown or ASN.1 files found in selection')
+  if (firstFiles.length === 0) {
+    vscode.window.showErrorMessage('No markdown or ASN.1 files found in selection')
     return
   }
 
+  const specRoot = config.getSpecRootForFile(firstFiles[0])
+
+  // Cover page selection (before save dialog)
+  const coverPageChoice = await selectCoverPage(config, specRoot)
+  if (!coverPageChoice) return
+
+  const frontPageData = coverPageChoice.type === 'standard' ? coverPageChoice.frontPage : null
+  const crCoverPageData = coverPageChoice.type === 'cr' ? coverPageChoice.crData : null
+
+  // Build default filename
   const ts = formatExportTimestamp()
-  const defaultName = shortHash ? `${ts} Export_${shortHash}.docx` : `${ts} Export.docx`
+  let defaultName
+  if (isDiff) {
+    // Try CR-based filename
+    let crFilename = null
+    if (specRoot) {
+      const { detectCRCoverPage } = require('specpress/lib/common/crCoverPageDetector')
+      const crFilePath = detectCRCoverPage(specRoot)
+      if (crFilePath) {
+        const crResult = loadCRCoverPageData(crFilePath)
+        if (crResult.valid && crResult.data) crFilename = generateCRFilename(crResult.data)
+      }
+    }
+    defaultName = crFilename || `${ts} DIFF_${versions.map(v => v.label).join('_')}.docx`
+  } else {
+    const { shortHash, commitInput } = versions[0]
+    defaultName = shortHash ? `${ts} Export_${shortHash}.docx` : `${ts} Export.docx`
+  }
+
   const saveUri = await vscode.window.showSaveDialog({
     filters: { 'Word Document': ['docx'] },
     defaultUri: vscode.Uri.file(path.join(config.getExportFolder(state.lastExportFolder), defaultName))
@@ -80,77 +120,144 @@ async function exportDocx(state, config, context, uri, allUris) {
   state.lastExportFolder = path.dirname(saveUri.fsPath)
 
   let outputPath = saveUri.fsPath
-  if (shortHash) {
+  if (!isDiff && versions[0].shortHash) {
     const parsed = path.parse(outputPath)
-    if (!parsed.name.includes(shortHash)) {
-      outputPath = path.join(parsed.dir, `${parsed.name}_${shortHash}${parsed.ext}`)
+    if (!parsed.name.includes(versions[0].shortHash)) {
+      outputPath = path.join(parsed.dir, `${parsed.name}_${versions[0].shortHash}${parsed.ext}`)
     }
   }
 
+  if (isDiff) {
+    await _exportDiff(state, config, context, uris, versions, repoRoot, specRoot, crCoverPageData, outputPath)
+  } else {
+    await _exportSingle(state, config, context, uris, versions[0], repoRoot, specRoot, firstFiles, frontPageData, crCoverPageData, outputPath)
+  }
+}
+
+async function _exportSingle(state, config, context, uris, version, repoRoot, specRoot, files, frontPageData, crCoverPageData, outputPath) {
+  const { commitInput, shortHash, label } = version
   try {
     let imageCount = 0
-    const specRoot = config.getSpecRootForFile(files[0])
-    const label = shortHash ? `${commitInput} (${shortHash})` : 'local files'
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: `Exporting DOCX from ${label}...`, cancellable: false },
       async () => {
-        const readFile = shortHash ? (f) => getFileFromCommit(repoRoot, f, commitInput) : undefined
+        let fileResolver = null
+        let resolver = null
+        if (shortHash && specRoot) {
+          resolver = createCommitResolver(repoRoot, specRoot, commitInput)
+          fileResolver = (f) => resolver.readFile(f)
+        }
+
+        const readFile = shortHash ? (f) => resolver.readFile(f, 'utf8') : undefined
         let content = concatenateFiles(files, readFile, specRoot)
         if (specRoot && !config.isSpecRootSelection(uris)) {
           const allFiles = collectFiles([specRoot])
-          if (files.length < allFiles.length) {
+          if (files.length < allFiles.length) content = insertOmittedMarkers(content, files, allFiles)
+        }
+
+        const mermaidConfig = config.loadMermaidConfig()
+        const mermaidBundlePath = await ensureMermaidBundle(context.globalStorageUri.fsPath)
+        const converterOpts = { mermaidConfig, specRootPath: specRoot, mermaidRenderer: makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot) }
+        if (fileResolver) converterOpts.fileResolver = fileResolver
+        const converter = new Md2Docx(converterOpts)
+
+        await converter.convert(content, outputPath, path.dirname(files[0]), frontPageData, { crCoverPageData })
+        imageCount = converter.imageCount
+
+        if (!shortHash && specRoot) {
+          try { cleanupDiagramCache(specRoot, { mermaidConfig: config.loadMermaidConfig() }) } catch (e) {}
+        }
+      }
+    )
+    showExportNotification(formatExportMessage('DOCX', files.length, imageCount, version.shortHash ? `hash: ${version.shortHash}` : undefined), path.dirname(outputPath), outputPath)
+  } catch (e) {
+    vscode.window.showErrorMessage(`DOCX export failed: ${e.message}`)
+  }
+}
+
+async function _exportDiff(state, config, context, uris, versions, repoRoot, specRoot, crCoverPageData, outputPath) {
+  const tmpDir = require('os').tmpdir()
+  const timestamp = Date.now()
+
+  // Clean up old temp files
+  try {
+    for (const f of fs.readdirSync(tmpDir)) {
+      if (f.startsWith('specpress_diff_') && f.endsWith('.docx')) {
+        try { fs.unlinkSync(path.join(tmpDir, f)) } catch (e) {}
+      }
+    }
+  } catch (e) {}
+
+  // Ask about omitted section markers
+  const insertPlaceholders = await vscode.window.showQuickPick(
+    [{ label: 'Yes', value: true }, { label: 'No', value: false }],
+    { placeHolder: 'Insert placeholders for omitted sections?' }
+  )
+  if (!insertPlaceholders) return
+  const withMarkers = insertPlaceholders.value
+
+  try {
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: 'Generating DOCX comparison...', cancellable: false },
+      async (progress) => {
+        const mermaidConfig = config.loadMermaidConfig()
+        const mermaidBundlePath = await ensureMermaidBundle(context.globalStorageUri.fsPath)
+
+        const docxFiles = []
+        for (let i = 0; i < versions.length; i++) {
+          const v = versions[i]
+          progress.report({ message: `Generating DOCX for version ${i + 1} (${v.label})...` })
+
+          const files = v.commitInput
+            ? collectFilesFromCommitUris(repoRoot, uris, v.commitInput)
+            : collectFilesFromUris(uris)
+
+          let readFile = undefined
+          let fileResolver = null
+          if (v.commitInput) {
+            const resolver = createCommitResolver(repoRoot, specRoot, v.commitInput)
+            readFile = (f) => resolver.readFile(f, 'utf8')
+            fileResolver = (f) => resolver.readFile(f)
+          }
+
+          let content = concatenateFiles(files, readFile, specRoot)
+          if (withMarkers && specRoot) {
+            const allFiles = collectFiles([specRoot])
             content = insertOmittedMarkers(content, files, allFiles)
           }
+
+          const docxPath = path.join(tmpDir, `specpress_diff_v${i + 1}_${v.label}_${timestamp}.docx`)
+          const converter = new Md2Docx({
+            updateFields: false,
+            mermaidConfig,
+            specRootPath: specRoot,
+            mermaidRenderer: makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot),
+            fileResolver: fileResolver || undefined
+          })
+          await converter.convert(content, docxPath, path.dirname(files[0]), null, { crCoverPageData })
+          docxFiles.push(docxPath)
         }
-        const tmpDir = require('os').tmpdir()
-        const timestamp = Date.now()
-        const tempMd = path.join(tmpDir, `.~export_${timestamp}.md`)
-        fs.writeFileSync(tempMd, content)
 
-        try {
-          const mermaidConfig = config.loadMermaidConfig()
-          const mermaidBundlePath = await ensureMermaidBundle(context.globalStorageUri.fsPath)
+        progress.report({ message: 'Starting document comparison...' })
+        const revisions = versions.slice(1).map((v, i) => ({ docxPath: docxFiles[i + 1], authorName: v.authorName }))
+        await mergeDocxVersions(docxFiles[0], revisions, outputPath, {
+          backend: 'auto',
+          debug: DEBUG_MODE,
+          onProgress: (msg) => progress.report({ message: msg })
+        })
 
-          // Build file resolver for git commits
-          let fileResolver = null
-          if (shortHash) {
-            const { extractFilesFromCommit } = require('./helpers')
-            const searchPaths = [...new Set(uris.map(u => {
-              const p = u.fsPath
-              return fs.existsSync(p) && fs.statSync(p).isDirectory() ? p : path.dirname(p)
-            }))]
-            const fileCache = extractFilesFromCommit(repoRoot, commitInput, searchPaths)
-            const normPath = (p) => p.replace(/\\/g, '/').toLowerCase()
-            fileResolver = (filePath) => {
-              if (fileCache.has(filePath)) return fileCache.get(filePath)
-              const target = normPath(filePath)
-              for (const [key, val] of fileCache) {
-                if (normPath(key) === target) return val
-              }
-              return fs.readFileSync(filePath)
-            }
+        if (!DEBUG_MODE) {
+          for (const f of docxFiles) {
+            try { if (fs.existsSync(f)) fs.unlinkSync(f) } catch (e) {}
           }
-
-          const converter = new MarkdownToDocxConverter(mermaidConfig, specRoot, makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot), fileResolver)
-
-          // Select cover page (CR, standard front page, or none)
-          const coverPageChoice = await selectCoverPage(config, specRoot)
-          if (!coverPageChoice) return // User cancelled
-
-          const frontPage = coverPageChoice.frontPage || null
-          const crCoverPageData = coverPageChoice.crData || null
-
-          await converter.convert(tempMd, outputPath, path.dirname(files[0]), frontPage, { crCoverPageData })
-          imageCount = converter.imageCount
-        } finally {
-          if (fs.existsSync(tempMd)) fs.unlinkSync(tempMd)
         }
       }
     )
 
-    showExportNotification(formatExportMessage('DOCX', files.length, imageCount, shortHash ? `hash: ${shortHash}` : undefined), path.dirname(outputPath), outputPath)
+    const versionSummary = versions.map((v, i) => `v${i + 1}: ${v.label}`).join(', ')
+    showExportNotification(`DOCX comparison completed: ${versionSummary}`, path.dirname(outputPath), outputPath)
   } catch (e) {
-    vscode.window.showErrorMessage(`DOCX export failed: ${e.message}`)
+    vscode.window.showErrorMessage(`DOCX comparison failed: ${e.message}`)
   }
 }
 
