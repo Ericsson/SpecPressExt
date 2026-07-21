@@ -9,7 +9,7 @@ const { Md2Docx } = require('specpress/lib/md2docx/md2docx')
 const { ensureMermaidBundle } = require('specpress/lib/md2docx/handlers/mermaidHandler')
 const { loadCRCoverPageData } = require('specpress/lib/common/crCoverPageLoader')
 const { mergeDocxVersions, detectBackends } = require('specpress/lib/common/docxMerge')
-const { pickVersions, collectFilesFromUris, collectFilesFromCommitUris, insertOmittedMarkers, makeMermaidRenderer, formatExportTimestamp, showExportNotification, generateCRFilename } = require('./helpers')
+const { pickVersions, collectFilesFromUris, collectFilesFromCommitUris, insertOmittedMarkers, makeMermaidRenderer, formatExportTimestamp, showExportNotification, generateCRFilename, warnIfMscgenMissing } = require('./helpers')
 const { selectCoverPage } = require('./coverPageSelector')
 
 const DEBUG_MODE = false
@@ -138,6 +138,7 @@ async function _exportSingle(state, config, context, uris, version, repoRoot, sp
   const { commitInput, shortHash, label } = version
   try {
     let imageCount = 0
+    warnIfMscgenMissing()
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: `Exporting DOCX from ${label}...`, cancellable: false },
       async () => {
@@ -197,6 +198,7 @@ async function _exportDiff(state, config, context, uris, versions, repoRoot, spe
   const withMarkers = insertPlaceholders.value
 
   try {
+    warnIfMscgenMissing()
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: 'Generating DOCX comparison...', cancellable: false },
       async (progress) => {

@@ -288,6 +288,26 @@ async function pickVersions(repoRoot, basePrompt, comparePrompt, maxVersions = 2
   return versions
 }
 
+/**
+ * Shows a VS Code warning message if msc-gen is not installed.
+ * Called before HTML or DOCX export to inform the user that MSC-Gen diagrams
+ * will be skipped. The message includes a link to the installation page.
+ */
+function warnIfMscgenMissing() {
+  const { findMscgen } = require('specpress/lib/common/mscgenRenderer')
+  if (!findMscgen()) {
+    vscode.window.showWarningMessage(
+      'msc-gen not found — MSC-Gen diagrams will not be rendered. ' +
+      'See installation instructions.',
+      'Install msc-gen'
+    ).then(choice => {
+      if (choice === 'Install msc-gen') {
+        vscode.env.openExternal(vscode.Uri.parse('https://gitlab.com/msc-generator/msc-generator/#download-and-install'))
+      }
+    })
+  }
+}
+
 module.exports = {
   NOT_CONFIGURED_MSG,
   formatExportTimestamp,
@@ -298,6 +318,7 @@ module.exports = {
   collectFilesFromCommitUris,
   insertOmittedMarkers,
   makeMermaidRenderer,
+  warnIfMscgenMissing,
   findWinword,
   generateCRFilename
 }
