@@ -1,5 +1,5 @@
 const vscode = require('vscode')
-const { extractSectionNumber, parsePlaceholder, parseCaptionPlaceholder } = require('specpress/lib/common/specProcessor')
+const { extractSectionNumber, parsePlaceholder, parseCaptionPlaceholder } = require('specpress')
 
 const HEADING_RE = /^(#{1,6})\s+(.*)/
 const CAPTION_RE = /^(Figure|Table)\s+(.*)/i

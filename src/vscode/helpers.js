@@ -2,11 +2,7 @@ const vscode = require('vscode')
 const fs = require('fs')
 const path = require('path')
 const { execSync } = require('child_process')
-const { getGitLog } = require('specpress/lib/common/gitHelpers')
-const { collectFiles } = require('specpress/lib/common/specProcessor')
-const { collectFilesFromCommit } = require('specpress/lib/common/gitHelpers')
-const { insertOmittedMarkers } = require('specpress/lib/common/specProcessor')
-const { findWinword } = require('specpress/lib/common/docxMerge')
+const { getGitLog, collectFiles, collectFilesFromCommit, insertOmittedMarkers, findWinword } = require('specpress')
 
 const NOT_CONFIGURED_MSG = 'SpecPress: specpress.specificationRootPath is not configured. Set it in workspace settings to enable SpecPress features.'
 
@@ -133,7 +129,7 @@ function collectFilesFromCommitUris(repoRoot, uris, commit) {
  * @returns {Function} Async function `(codes) => svgs[]`.
  */
 function makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot) {
-  const { renderMermaidCached } = require('specpress/lib/common/diagramRenderers')
+  const { renderMermaidCached } = require('specpress')
   const { renderMermaidViaWebview } = require('./mermaidWebviewRenderer')
   return (codes) => renderMermaidCached(
     codes, mermaidConfig, specRoot,
@@ -294,7 +290,7 @@ async function pickVersions(repoRoot, basePrompt, comparePrompt, maxVersions = 2
  * will be skipped. The message includes a link to the installation page.
  */
 function warnIfMscgenMissing() {
-  const { findMscgen } = require('specpress/lib/common/mscgenRenderer')
+  const { findMscgen } = require('specpress')
   if (!findMscgen()) {
     vscode.window.showWarningMessage(
       'msc-gen not found — MSC-Gen diagrams will not be rendered. ' +

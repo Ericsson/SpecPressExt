@@ -1,7 +1,6 @@
 const vscode = require('vscode')
 const path = require('path')
-const { detectCRCoverPage } = require('specpress/lib/common/crCoverPageDetector')
-const { loadCRCoverPageData } = require('specpress/lib/common/crCoverPageLoader')
+const { detectCRCoverPage, loadCRCoverPageData } = require('specpress')
 /**
  * Prompts the user to select a cover page type for export.
  * Detects available options (CR cover page, standard front page) and presents them.

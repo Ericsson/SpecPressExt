@@ -1,5 +1,5 @@
 const vscode = require('vscode')
-const { extractSectionNumber, parsePlaceholder } = require('specpress/lib/common/specProcessor')
+const { extractSectionNumber, parsePlaceholder } = require('specpress')
 
 const HEADING_RE = /^(#{1,6})\s+(.*)/
 

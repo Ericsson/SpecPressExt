@@ -1,7 +1,5 @@
 const path = require('path')
-const { concatenateFiles } = require('specpress/lib/common/specProcessor')
-const { collectFilesFromCommit } = require('specpress/lib/common/gitHelpers')
-const { diffHtml } = require('specpress/lib/md2html/htmlDiff')
+const { concatenateFiles, collectFilesFromCommit, diffHtml } = require('specpress')
 
 /**
  * Applies change tracking by diffing baseline vs current rendered HTML.

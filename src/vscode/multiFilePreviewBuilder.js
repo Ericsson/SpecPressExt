@@ -1,11 +1,7 @@
 const vscode = require('vscode')
 const path = require('path')
-const { collectFiles, concatenateFiles } = require('specpress/lib/common/specProcessor')
-const { collectFilesFromCommit } = require('specpress/lib/common/gitHelpers')
-const { createLocalResolver, createCommitResolver } = require('specpress/lib/common/fileResolver')
-const { getRepoRoot } = require('specpress/lib/common/gitHelpers')
+const { collectFiles, concatenateFiles, collectFilesFromCommit, createLocalResolver, createCommitResolver, getRepoRoot, diffHtml } = require('specpress')
 const { insertOmittedMarkers } = require('./helpers')
-const { diffHtml } = require('specpress/lib/md2html/htmlDiff')
 
 /**
  * Builds and displays a multi-file preview.

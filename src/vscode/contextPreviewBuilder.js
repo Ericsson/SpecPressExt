@@ -1,9 +1,7 @@
 const vscode = require('vscode')
 const path = require('path')
 const fs = require('fs')
-const { collectFiles, concatenateFiles } = require('specpress/lib/common/specProcessor')
-const { detectCRCoverPage } = require('specpress/lib/common/crCoverPageDetector')
-const { loadCRCoverPageData } = require('specpress/lib/common/crCoverPageLoader')
+const { collectFiles, concatenateFiles, detectCRCoverPage, loadCRCoverPageData } = require('specpress')
 const { applyDiff } = require('./diffRenderer')
 
 /**

@@ -1,5 +1,5 @@
 const vscode = require('vscode')
-const { extractSectionNumber } = require('specpress/lib/common/specProcessor')
+const { extractSectionNumber } = require('specpress')
 
 /**
  * Provides explorer tooltip decorations showing the derived section number

@@ -1,8 +1,6 @@
 const vscode = require('vscode')
 const path = require('path')
-const { getRepoRoot } = require('specpress/lib/common/gitHelpers')
-const { exportHtml: exportHtmlCore } = require('specpress/lib/md2html/exportHtml')
-const { collectFiles, collectFilesFromCommit, formatExportMessage } = require('specpress/lib/common/specProcessor')
+const { getRepoRoot, exportHtml: exportHtmlCore, collectFiles, collectFilesFromCommit, formatExportMessage } = require('specpress')
 const { pickVersions, collectFilesFromUris, collectFilesFromCommitUris, formatExportTimestamp, showExportNotification, warnIfMscgenMissing } = require('./helpers')
 const { selectCoverPage } = require('./coverPageSelector')
 

@@ -1,14 +1,11 @@
 const vscode = require('vscode')
 const path = require('path')
 const fs = require('fs')
-const { Md2Html } = require('specpress/lib/md2html/md2html')
-const { renderCRCoverPageHTML } = require('specpress/lib/md2html/crCoverPageRenderer')
+const { Md2Html, renderCRCoverPageHTML, createLocalResolver, getRepoRoot } = require('specpress')
 const { buildFileContext, buildContextPreview } = require('./contextPreviewBuilder')
 const { previewMultiple } = require('./multiFilePreviewBuilder')
 const { applyDiff } = require('./diffRenderer')
 const { logger } = require('./logger')
-const { createLocalResolver } = require('specpress/lib/common/fileResolver')
-const { getRepoRoot } = require('specpress/lib/common/gitHelpers')
 
 /** Load scroll sync script from external file */
 const scrollSyncScriptPath = path.join(__dirname, 'scrollSync.js')

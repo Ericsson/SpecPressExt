@@ -4,8 +4,7 @@ const fs = require('fs')
 const MarkdownIt = require('markdown-it')
 const texmath = require('markdown-it-texmath')
 const katex = require('katex')
-const { buildSpanMap, normalizeJsonTable } = require('specpress/lib/common/buildSpanMap')
-const { preprocessLatex } = require('specpress/lib/common/latexHelpers')
+const { buildSpanMap, normalizeJsonTable, preprocessLatex } = require('specpress')
 
 /**
  * Custom editor provider for JsonTable files.

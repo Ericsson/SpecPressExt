@@ -10,7 +10,7 @@ The extension is a thin VS Code integration layer on top of the [specpress](http
 
 - **Live preview** - Live preview of the currently edited Markdown- or ASN.1 file with real time updates and synchronized scrolling.
 - **Multiple File Preview** - Shows a concatenated live preview of all selected files and/or folders in the VSC explorer pane.
-- **HTML Export** - Export current preview or the selected files/folders to a standalone HTML file with a media directory containing all images. Supports exporting from local files or from any git commit/branch/tag.
+- **HTML Export** - Export current preview or the selected files/folders to a standalone HTML file with a media directory containing all images. Supports exporting from local files or from any git commit/branch/tag. Supports exporting a tracked-changes HTML diff between two versions.
 - **DOCX Export** - Exports the selected files/folders as a DOCX document in 3GPP style including appropriate style settings. Supports exporting from local files or from any git commit/branch/tag.
 - **DOCX DIFF** - Generates tracked-changes comparisons between 2-5 versions (commits or local files) with proper author attribution. See [detailed DOCX DIFF documentation](documentation/DOCX-DIFF.md).
 - **Change Tracking Preview** - Shows tracked changes (insertions/deletions) directly in the live preview by comparing the current version against any git baseline commit.
@@ -18,6 +18,7 @@ The extension is a thin VS Code integration layer on top of the [specpress](http
 - **CR cover page** - [Auto-generated CR cover page](https://github.com/Ericsson/specpress/blob/main/documentation/CR-Cover-Page.md) based on meta data provided in a JSON file. It may be included instead of the specification front page when exporting to HTML or DOCX.
 - **JsonTable Editor** - A WYSIWYG table editor for JsonTable files (JSON-defined tables used by specpress). Double-click cells to edit markdown content, drag to reorder rows/columns, merge cells via context menu, and see rendered output in real time.
 - **Commenting** - Use the commenting pane to add, read, answer and resolve comments on specification source files. The comments are stored as JSON files that may be stored and committed in the git repository, too. See the [detailed commenting documentation](https://github.com/Ericsson/SpecPressExt/blob/main/documentation/Commenting%20documents.md) for workflows and configuration.
+- **MSC-Gen diagrams** - Renders MSC-Gen sequence, block, and graph diagrams (fenced `mscgen` code blocks) in the live preview, multi-file preview, HTML export, and DOCX export. Requires the [msc-generator](https://gitlab.com/msc-generator/msc-generator) CLI tool.
 - **Band Combinations** - A dedicated side pane for browsing, filtering, validating, and previewing RAN4 band combination data (TS 38.101). Supports CA, DC, and band files with rich filtering by band numbers, carriers, properties, and notes.
 
 ## 1.2 Installation
@@ -102,6 +103,7 @@ The following settings can be configured in VS-Code's workspace or user settings
 | `specpress.renderers` | object | `{}` | Custom HTML renderers for markdown elements (advanced). |
 | `specpress.cssFile` | string | SpecPress default | Path to a custom CSS file for HTML preview and export, relative to workspace root. It is recommended not to set this parameter and rather rely on the default CSS provided with the SpecPressExtension. |
 | `specpress.mermaidConfigFile` | string | SpecPress default | Path to a mermaid configuration JSON file, relative to workspace root. It is recommended not to set this parameter and rather rely on the default configuration provided with the SpecPressExtension. |
+| `specpress.mscgenConfigFile` | string | SpecPress default | Path to an MSC-Gen configuration JSON file, relative to workspace root. It is recommended not to set this parameter and rather rely on the default configuration provided with the SpecPressExtension. |
 | `specpress.enableDebugLogging` | boolean | `false` | Enable debug logging to temp file for troubleshooting. Useful when running in Extension Development Host. |
 | `specpress.bandCombinationFolder` | string | `""` | Path to the folder containing RAN4 band combination JSON files (CA_*.json, DC_*.json, n*.json). Relative to workspace root or absolute. Required for the Band Combinations side pane. |
 
@@ -145,9 +147,17 @@ Figure 1.5.3-1: Live preview of ASN.1 files
 
 ### 1.5.4 HTML export
 
-The live-preview (of one or several files) may be exported to a standalone HTML file. Right-click onto the live preview and choose "**Export to HTML**". A save dialog opens with a timestamped default filename (e.g. `2026-03-31 14-30-00 Export.html`). The dialog initially opens in the folder configured via `specpress.defaultExportFolder`, or in the last used export folder.
+To export an HTML version, select one or more files and/or folders in the VS-Code explorer pane. Right-click and choose "**Export Selected to HTML**". The extension then guides you through the following steps:
 
-The function converts and exports the concatenated files including an embedded CSS and scripts to render the embedded mermaid figures. It also creates a *media* directory next to the HTML file containing all images used in the document.
+1. **Version selection** — A searchable commit picker appears. Choose "Local files (current workspace)" to export the current working copy, or select a specific commit/branch/tag.
+
+2. **Diff version selection** (optional) — A second picker appears. Choose "None" to export a plain HTML file, or select a second version to produce a tracked-changes HTML diff with insertions and deletions highlighted inline.
+
+3. **Cover page selection** (spec root only) — Same options as DOCX export (Specification Front Page, CR Cover Page, or No Front Page).
+
+4. **Save location** — A save dialog opens with a timestamped default filename. For a diff export the filename encodes both version hashes (e.g. `...DIFF_abc1234_vs_def5678.html`).
+
+The function converts and exports the concatenated files including an embedded CSS. It creates a `media/` directory next to the HTML file containing all images used in the document. For git-sourced exports, images are read directly from the git commit.
 
 The HTML file can be shared and opened in a browser.
 
@@ -240,9 +250,36 @@ For full documentation of the section numbering rules (folder/file structure, x-
 
 When exporting to DOCX, mermaid diagrams are rendered to SVG using a hidden VS-Code webview. The mermaid library (`mermaid.min.js`) is automatically downloaded from CDN on first use and cached in VS-Code's global storage. It is refreshed every 24 hours; if offline, the stale cache is reused.
 
-The rendered SVGs are cached on disk (in a `cached/` directory next to the spec root) so that unchanged diagrams are never re-rendered. For full documentation of the SVG caching mechanism (cache location, cache keys, cleanup), see the [specpress README](https://github.com/Ericsson/specpress#mermaid-diagram-caching).
+The rendered SVGs are cached on disk (in a `cached/` directory next to the spec root) so that unchanged diagrams are never re-rendered. For full documentation of the SVG caching mechanism (cache location, cache keys, cleanup), see the [specpress README](https://github.com/Ericsson/specpress#diagram-caching-mermaid-and-msc-gen).
 
-### 1.5.11 Band Combinations
+### 1.5.11 MSC-Gen diagrams
+
+Fenced code blocks tagged `mscgen` are rendered as MSC-Gen diagrams in the live preview, multi-file preview, HTML export, and DOCX export.
+
+Three diagram types are supported:
+
+- **signalling** (default) — MSC sequence diagram
+- **block** — MSC block diagram
+- **graph** — Graphviz DOT graph (auto-detected when the code starts with `graph {`)
+
+The type can be set explicitly with an `@type=` directive on its own line:
+
+````markdown
+```mscgen
+@type=block
+msc { ... }
+```
+````
+
+Rendering requires the [msc-generator](https://gitlab.com/msc-generator/msc-generator) CLI tool to be installed. If it is not found, a warning is shown before export and diagrams are skipped with a placeholder.
+
+Diagram style defaults (hscale, defstyle) can be configured via `specpress.mscgenConfigFile`. If not set, the built-in defaults from the specpress library are used.
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `specpress.mscgenConfigFile` | string | SpecPress default | Path to an MSC-Gen configuration JSON file, relative to workspace root. |
+
+### 1.5.12 Band Combinations
 
 The extension provides a dedicated side pane for working with RAN4 band combination data (TS 38.101). It allows browsing, filtering, validating, and previewing band combination JSON files directly in VS Code.
 

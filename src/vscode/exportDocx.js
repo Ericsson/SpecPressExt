@@ -1,14 +1,7 @@
 const vscode = require('vscode')
 const fs = require('fs')
 const path = require('path')
-const { getRepoRoot } = require('specpress/lib/common/gitHelpers')
-const { createCommitResolver } = require('specpress/lib/common/fileResolver')
-const { cleanupDiagramCache } = require('specpress/lib/common/diagramCache')
-const { collectFiles, concatenateFiles, formatExportMessage } = require('specpress/lib/common/specProcessor')
-const { Md2Docx } = require('specpress/lib/md2docx/md2docx')
-const { ensureMermaidBundle } = require('specpress/lib/md2docx/handlers/mermaidHandler')
-const { loadCRCoverPageData } = require('specpress/lib/common/crCoverPageLoader')
-const { mergeDocxVersions, detectBackends } = require('specpress/lib/common/docxMerge')
+const { getRepoRoot, createCommitResolver, cleanupDiagramCache, collectFiles, concatenateFiles, formatExportMessage, Md2Docx, ensureMermaidBundle, loadCRCoverPageData, mergeDocxVersions, detectBackends } = require('specpress')
 const { pickVersions, collectFilesFromUris, collectFilesFromCommitUris, insertOmittedMarkers, makeMermaidRenderer, formatExportTimestamp, showExportNotification, generateCRFilename, warnIfMscgenMissing } = require('./helpers')
 const { selectCoverPage } = require('./coverPageSelector')
 
@@ -99,7 +92,7 @@ async function exportDocx(state, config, context, uri, allUris) {
     // Try CR-based filename
     let crFilename = null
     if (specRoot) {
-      const { detectCRCoverPage } = require('specpress/lib/common/crCoverPageDetector')
+      const { detectCRCoverPage } = require('specpress')
       const crFilePath = detectCRCoverPage(specRoot)
       if (crFilePath) {
         const crResult = loadCRCoverPageData(crFilePath)
@@ -288,7 +281,7 @@ async function exportCRCoverOnly(state, config, context, crFilePath) {
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: 'Exporting CR cover page DOCX...', cancellable: false },
       async () => {
-        const { exportCRCoverPageDocx } = require('specpress/lib/md2docx/crCoverPageRenderer')
+        const { exportCRCoverPageDocx } = require('specpress')
         await exportCRCoverPageDocx(crFilePath, saveUri.fsPath)
       }
     )

@@ -1,6 +1,6 @@
 const vscode = require('vscode')
 const path = require('path')
-const { buildMermaidPageScript } = require('specpress/lib/common/mermaidRenderer')
+const { buildMermaidPageScript } = require('specpress')
 
 /**
  * Renders mermaid diagrams via a hidden VS Code webview panel.
