@@ -99,7 +99,10 @@ async function previewMultiple(state, config, ensureHandler, registerMessageHand
       if (state.isSpecRootPreview) {
         const { selectCoverPage } = require('./coverPageSelector')
         const coverPageChoice = await selectCoverPage(config, specRoot)
-        if (!coverPageChoice) return  // user cancelled
+        if (!coverPageChoice) {
+          state.isMultiFilePreview = false
+          return
+        }
         frontPageData = coverPageChoice.type === 'standard' ? coverPageChoice.frontPage : null
         crCoverPageData = coverPageChoice.type === 'cr' ? coverPageChoice.crData : null
       }
@@ -122,12 +125,13 @@ async function previewMultiple(state, config, ensureHandler, registerMessageHand
 
       const baseDir = config.wsRoot || state.multiFileBaseDir
 
-      // Build title
-      const baseLabel = commitRef ? commitRef.shortHash : 'local'
-      const baselineLabel = baselineRef === 'local' ? 'local' : baselineRef ? baselineRef.shortHash : null
-      state.panel.title = baselineLabel
-        ? `Preview (${baseLabel} vs ${baselineLabel})`
-        : commitRef ? `Preview (${baseLabel})` : 'Multiple Files Preview'
+      // Build title — matches previewTitlePrefix() format in previewManager
+      const baseLabel = commitRef ? commitRef.shortHash : null
+      const compareLabel = baselineRef === 'local' ? 'local' : baselineRef ? baselineRef.shortHash : null
+      if (baseLabel && compareLabel) state.panel.title = `Static (${baseLabel} vs ${compareLabel})`
+      else if (baseLabel) state.panel.title = `Static (${baseLabel})`
+      else if (compareLabel) state.panel.title = `Static (local vs ${compareLabel})`
+      else state.panel.title = 'Static'
 
       // commitRef = old/base version (processedContent), baselineRef = new/compare version
       // For diff: baseline (old) = commitRef content, current (new) = baselineRef content

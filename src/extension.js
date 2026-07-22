@@ -309,12 +309,17 @@ function activate(context) {
         } catch (e) { /* not a git repo */ }
 
         if (repoRoot) {
+          // Guard against the global auto-preview listener firing while pickers are open
+          state.isMultiFilePreview = true
           const versions = await pickVersions(
             repoRoot,
             'Select base version to preview',
             'Compare against (select to show tracked changes, or choose None to skip)'
           )
-          if (versions === null) return
+          if (versions === null) {
+            state.isMultiFilePreview = false
+            return
+          }
           // commitRef: null = local, otherwise { repoRoot, commit, shortHash }
           const base = versions[0]
           commitRef = base.shortHash ? { repoRoot, commit: base.commitInput, shortHash: base.shortHash } : null
@@ -416,13 +421,15 @@ function activate(context) {
               state.panel.webview.asWebviewUri(vscode.Uri.file(resolver.getAbsPath(absPath))).toString()
           }
 
+          let shortHash
+          try { shortHash = execSync(`git rev-parse --short ${baselineCommit}`, { cwd: repoRoot, encoding: 'utf8' }).trim() } catch (e) { shortHash = baselineCommit.substring(0, 7) }
+
           state.changeTrackingCommit = baselineCommit
           state.changeTrackingRepoRoot = repoRoot
+          state.changeTrackingShortHash = shortHash
           state.changeTrackingResolver = resolver
           vscode.commands.executeCommand('setContext', 'specpress.changeTrackingActive', true)
 
-          let shortHash
-          try { shortHash = execSync(`git rev-parse --short ${baselineCommit}`, { cwd: repoRoot, encoding: 'utf8' }).trim() } catch (e) { shortHash = baselineCommit.substring(0, 7) }
           vscode.window.showInformationMessage(`SpecPress: Change tracking enabled (baseline: ${shortHash}).`)
         }
       )
@@ -438,6 +445,7 @@ function activate(context) {
     vscode.commands.registerCommand('specpress.disableChangeTracking', async () => {
       state.changeTrackingCommit = null
       state.changeTrackingRepoRoot = null
+      state.changeTrackingShortHash = null
       state.changeTrackingResolver = null
       vscode.commands.executeCommand('setContext', 'specpress.changeTrackingActive', false)
       vscode.window.showInformationMessage('SpecPress: Change tracking disabled.')
@@ -758,11 +766,12 @@ function activate(context) {
     }
   }
 
-  // Auto preview when switching editors
+  // Auto preview when switching editors — only when live preview (not multi-file) is active
   let hintShown = false
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(editor => {
       if (!editor) return
+      if (state.isMultiFilePreview) return  // never interrupt an active multi-file preview
       if (state.autoPreviewActive) {
         if (config.resolveSpecRoots().length) previewMgr.setupPreview(editor)
         return

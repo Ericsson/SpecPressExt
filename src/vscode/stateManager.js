@@ -56,6 +56,8 @@ class StateManager {
     this.autoPreviewActive = false
     /** @type {string|null} Baseline commit for change tracking (null = disabled) */
     this.changeTrackingCommit = null
+    /** @type {string|null} Short hash of the change tracking baseline commit */
+    this.changeTrackingShortHash = null
     /** @type {string|null} Repo root for change tracking */
     this.changeTrackingRepoRoot = null
     /** @type {import('../../specpress/lib/common/fileResolver').FileResolver|null} Resolver for baseline files */

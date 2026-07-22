@@ -30,6 +30,29 @@ class PreviewManager {
   }
 
   /**
+   * Builds the preview panel title prefix.
+   * Format: "Live" or "Static (version)" or "Static (base vs compare)".
+   */
+  previewTitlePrefix() {
+    const state = this.state
+    if (state.isMultiFilePreview) {
+      const base = state.lastMultiFileCommitRef ? state.lastMultiFileCommitRef.shortHash : null
+      const compare = state.lastMultiFileBaselineRef
+        ? (state.lastMultiFileBaselineRef === 'local' ? 'local' : state.lastMultiFileBaselineRef.shortHash)
+        : null
+      if (base && compare) return `Static (${base} vs ${compare})`
+      if (base) return `Static (${base})`
+      if (compare) return `Static (local vs ${compare})`
+      return 'Static'
+    }
+    if (state.changeTrackingCommit) {
+      const short = state.changeTrackingShortHash || state.changeTrackingCommit.substring(0, 7)
+      return `Live (changes vs ${short})`
+    }
+    return 'Live'
+  }
+
+  /**
    * Creates or re-creates the Md2Html handler with current settings.
    * Uses state.currentResolver (always a FileResolver) for file existence
    * checks and URI mapping.
@@ -89,8 +112,7 @@ class PreviewManager {
         }
       } else if (message.type === 'scroll') {
         if (state.panel && message.headingPath) {
-          const prefix = state.changeTrackingCommit ? 'Preview (changes): ' : 'Preview: '
-          state.panel.title = prefix + message.headingPath
+          state.panel.title = this.previewTitlePrefix() + ': ' + message.headingPath
         }
 
         if (state.currentEditor && !state.isMultiFilePreview && !state.isEditorScrolling && !state.lastFocusedIsEditor) {
@@ -146,16 +168,15 @@ class PreviewManager {
             const pos = new vscode.Position(line, 0)
             editor.selection = new vscode.Selection(pos, pos)
             editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter)
+            // Switch to live preview (same behaviour as "Edit this section")
+            state.isMultiFilePreview = false
+            this.setupPreview(editor)
           })
         })
       } else if (message.type === 'contextTarget') {
         state.lastContextTarget = { file: message.sourceFile, line: message.sourceLine }
       } else if (message.type === 'focus') {
         state.lastFocusedIsEditor = false
-        if (!state.isMultiFilePreview) {
-          const ed = state.currentEditor || vscode.window.activeTextEditor
-          if (ed) vscode.window.showTextDocument(ed.document, ed.viewColumn, false)
-        }
       }
     })
   }
@@ -281,8 +302,7 @@ class PreviewManager {
     // Render context preview
     const html = buildContextPreview(state, this.config, () => this.ensureHandler(this.config.getSpecRootForFile(filePath)))
     state.panel.webview.html = html
-    const prefix = state.changeTrackingCommit ? 'Preview (changes)' : 'Preview'
-    state.panel.title = prefix
+    state.panel.title = this.previewTitlePrefix()
 
     // Scroll to current file and line
     setTimeout(() => {
