@@ -5,6 +5,25 @@ All notable changes to the SpecPress Extension for VS Code will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.9] - 2026-07-27
+
+### Added
+
+- **SpecPress update** - Inherit latest SpecPress library version to get support for image-width statement, e.g. `![alt](image.png =50%x)` — display at 50% of the page/body width
+
+## [0.7.8] - 2026-07-27
+
+### Changed
+
+- **Smoother Scroll-Sync** - Improved scroll sync to run smoothly and to open adjacent source files (MD/ASN) when the preview moves therein.
+
+## [0.7.7] - 2026-07-24
+
+### Changed
+
+- **CSS colors** - Adjusted colors for HTML DIFF view
+- **SpecPress update** - Enforce latest SpecPress library
+
 ## [0.7.6] - 2026-07-22
 
 ### Added

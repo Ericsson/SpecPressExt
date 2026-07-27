@@ -466,6 +466,6 @@
   },
   "dependencies": {
     "htmldiff-js": "^1.0.5",
-    "specpress": "^3.4.3"
+    "specpress": "^3.4.5"
   }
 }
