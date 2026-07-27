@@ -115,17 +115,37 @@ class PreviewManager {
           state.panel.title = this.previewTitlePrefix() + ': ' + message.headingPath
         }
 
-        if (state.currentEditor && !state.isMultiFilePreview && !state.isEditorScrolling && !state.lastFocusedIsEditor) {
+        if (state.currentEditor && !state.isMultiFilePreview && !state.editorScrollingCount && !state.lastFocusedIsEditor) {
           const currentFile = state.currentEditor.document.uri.fsPath
           const normalizeFile = (f) => f ? path.normalize(f).toLowerCase() : null
+          const line = Math.floor(message.sourceLine)
 
-          if (message.sourceFile && normalizeFile(message.sourceFile) !== normalizeFile(currentFile)) return
+          if (message.sourceFile && normalizeFile(message.sourceFile) !== normalizeFile(currentFile)) {
+            // Preview midpoint has crossed into a different file — open it in the editor
+            // without stealing focus and without rebuilding the preview.
+            const switchLine = Math.floor(message.midLine != null ? message.midLine : message.sourceLine)
+            state._suppressPreviewRebuild = true
+            vscode.workspace.openTextDocument(vscode.Uri.file(message.sourceFile)).then(doc => {
+              vscode.window.showTextDocument(doc, vscode.ViewColumn.One, /* preserveFocus */ true).then(ed => {
+                state.currentEditor = ed
+                state.previewScrollingCount = (state.previewScrollingCount || 0) + 1
+                const range = new vscode.Range(switchLine, 0, switchLine, 0)
+                ed.revealRange(range, vscode.TextEditorRevealType.AtTop)
+                setTimeout(() => {
+                  state.previewScrollingCount = Math.max(0, (state.previewScrollingCount || 1) - 1)
+                  state._suppressPreviewRebuild = false
+                }, 100)
+              })
+            }).catch(() => { state._suppressPreviewRebuild = false })
+            return
+          }
 
-          state.isPreviewScrolling = true
-          const revealType = message.scrollingDown ? vscode.TextEditorRevealType.AtBottom : vscode.TextEditorRevealType.AtTop
-          const range = new vscode.Range(message.sourceLine, 0, message.sourceLine, 0)
-          state.currentEditor.revealRange(range, revealType)
-          setTimeout(() => state.isPreviewScrolling = false, 150)
+          state.previewScrollingCount = (state.previewScrollingCount || 0) + 1
+          // sourceLine may be fractional — reveal the integer part with AtTop so the
+          // editor position tracks the top of the viewport, matching the webview.
+          const range = new vscode.Range(line, 0, line, 0)
+          state.currentEditor.revealRange(range, vscode.TextEditorRevealType.AtTop)
+          setTimeout(() => state.previewScrollingCount = Math.max(0, (state.previewScrollingCount || 1) - 1), 100)
         }
       } else if (message.type === 'loadPrevious') {
         if (state.contextStartIdx > 0) {
@@ -244,7 +264,6 @@ class PreviewManager {
     state.disposeListeners()
     state.currentEditor = editor
     state.isMultiFilePreview = false
-    state.lastVisibleRange = editor.visibleRanges[0] || null
     state.lastFocusedIsEditor = false
     vscode.commands.executeCommand('setContext', 'specpress.isMultiFilePreview', false)
 
@@ -344,33 +363,27 @@ class PreviewManager {
 
     // Scroll sync: editor → preview
     state.scrollSync = vscode.window.onDidChangeTextEditorVisibleRanges(e => {
-      if (state.panel && !state.isMultiFilePreview && !state.isPreviewScrolling
+      if (state.panel && !state.isMultiFilePreview && !state.previewScrollingCount
         && state.currentEditor && e.textEditor.document === state.currentEditor.document) {
-        state.isEditorScrolling = true
+        state.editorScrollingCount = (state.editorScrollingCount || 0) + 1
 
         const visibleRange = e.visibleRanges[0]
-        const prevRange = state.lastVisibleRange
-        state.lastVisibleRange = visibleRange
-
-        let sourceLine, scrollingDown
-        if (prevRange && visibleRange && visibleRange.start.line > prevRange.start.line) {
-          sourceLine = Math.max(0, visibleRange.end.line - 1)
-          scrollingDown = true
-        } else if (visibleRange) {
-          sourceLine = visibleRange.start.line
-          scrollingDown = false
-        } else {
+        if (!visibleRange) {
+          state.editorScrollingCount = Math.max(0, (state.editorScrollingCount || 1) - 1)
           return
         }
 
+        // Send a fractional line: start line + fraction of the first visible line
+        // that has scrolled past the top. VS Code doesn't expose sub-line fractions
+        // directly, so we use start.line as the top-of-viewport line.
+        const sourceLine = visibleRange.start.line
         const currentFile = state.currentEditor.document.uri.fsPath
         state.panel.webview.postMessage({
           type: 'scrollTo',
           sourceLine,
-          sourceFile: currentFile,
-          scrollingDown
+          sourceFile: currentFile
         })
-        setTimeout(() => state.isEditorScrolling = false, 150)
+        setTimeout(() => state.editorScrollingCount = Math.max(0, (state.editorScrollingCount || 1) - 1), 100)
       }
     })
 
@@ -379,7 +392,7 @@ class PreviewManager {
       if (ed && state.currentEditor && ed.document === state.currentEditor.document) {
         state.currentEditor = ed
         state.lastFocusedIsEditor = true
-      } else if (ed && state.panel && !state.isMultiFilePreview) {
+      } else if (ed && state.panel && !state.isMultiFilePreview && !state._suppressPreviewRebuild) {
         const newPath = ed.document.uri.fsPath
         if (this.isCRJsonFile(newPath)) {
           this.setupCRPreview(ed)
