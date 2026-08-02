@@ -24,10 +24,6 @@ class StateManager {
     this.fileSaveListener = null
     /** @type {boolean} Whether the current preview shows multiple files */
     this.isMultiFilePreview = false
-    /** @type {boolean} Guard flag to prevent scroll feedback loops from editor */
-    this.isEditorScrolling = false
-    /** @type {boolean} Guard flag to prevent scroll feedback loops from preview */
-    this.isPreviewScrolling = false
     /** @type {string|null} Concatenated markdown content for multi-file export */
     this.multiFileContent = null
     /** @type {string|null} Base directory of the first file in multi-file preview */
@@ -69,20 +65,36 @@ class StateManager {
     this.changeTrackingRepoRoot = null
     /** @type {import('../../specpress/lib/common/fileResolver').FileResolver|null} Resolver for baseline files */
     this.changeTrackingResolver = null
-    /** @type {import('vscode').Range|null} Last visible range in editor for scroll direction detection */
-    this.lastVisibleRange = null
     /** @type {string[]} Files in current preview context (current + neighbors) */
     this.contextFiles = []
     /** @type {number} Index of current editor file in contextFiles */
     this.currentFileIndex = -1
     /** @type {Map<string,string>} Cache of rendered HTML for adjacent files */
     this.adjacentFileCache = new Map()
-    /** @type {boolean} Flag to suppress automatic scrollToFile after HTML reload */
-    this.suppressScrollToFile = false
     /** @type {import('vscode').ViewColumn|null} Last known editor column of the preview
      *  panel. Tracked while the panel is visible because WebviewPanel.viewColumn becomes
      *  undefined once the panel is hidden (e.g. covered by a text editor in its group). */
     this.previewViewColumn = null
+
+    // --- Transient runtime flags (set/cleared during scroll & preview operations) ------
+    /** @type {number} >0 while the preview is being scrolled programmatically by the
+     *  editor→preview sync (suppresses the reverse sync). */
+    this.editorScrollingCount = 0
+    /** @type {number} >0 while the editor is being scrolled programmatically by the
+     *  preview→editor sync (suppresses the reverse sync). */
+    this.previewScrollingCount = 0
+    /** @type {boolean} True while a context-window reload is in flight (serializes slides). */
+    this._loadingContext = false
+    /** @type {boolean} True while relocating an editor out of the preview column. */
+    this._relocatingEditor = false
+    /** @type {boolean} True while intentionally replacing the panel (suppresses reset). */
+    this._replacingPanel = false
+    /** @type {boolean} True while a preview→editor switch is opening a doc (suppresses rebuild). */
+    this._suppressPreviewRebuild = false
+    /** @type {{file: string, line: number}|null} Debounced preview→editor cross-file target. */
+    this._pendingCrossFileSwitch = null
+    /** @type {ReturnType<typeof setTimeout>|null} Debounce timer for the cross-file switch. */
+    this._crossFileSwitchTimer = null
   }
 
   /** Disposes listeners and resets preview-related state. */

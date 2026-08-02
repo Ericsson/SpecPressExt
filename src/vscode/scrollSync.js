@@ -2,13 +2,13 @@ const vscode = acquireVsCodeApi();
 let scrollingCount = 0;  // counter instead of boolean to avoid stuck-scroll from re-entrant events
 let scrollRafPending = false;
 let lastScrollTop = 0;
-let updateCount = 0;
 let loadingPrevious = false;
-// Suppresses edge-triggered lazy-loading (loadPrevious/loadNext) until the preview has
-// been positioned at its intended target after a (re)load. This prevents the load-time
-// scroll event at position 0 from cascading loadPrevious calls and scrolling the preview
-// many pages upward before the opened file is positioned. Resets to false on every
-// reload because this whole script re-executes when webview.html is reassigned.
+// Suppresses edge-triggered lazy-loading (loadPrevious/loadNext) and scroll reporting
+// until the preview has been positioned at its intended target after a (re)load. This
+// stops the transient scrolls produced by a reload (reset-to-0 on load, and the anchor
+// restore) from reaching the extension, where they would reset the cross-file debounce
+// or schedule a switch to the wrong file. Resets to false on every reload because this
+// whole script re-executes when webview.html is reassigned.
 let initialPositioned = false;
 // Set once we have asked the extension to load more following files because the target
 // could not reach the top for lack of content below. Resets on reload (script re-runs).
@@ -124,30 +124,18 @@ function scrollElementToTop(el) {
 }
 
 window.addEventListener('load', () => {
-  updateCount++;
-  // Wait for mermaid to finish rendering before measuring scroll
+  // Wait for mermaid to finish rendering before reporting ready, so the extension's
+  // scroll positioning measures the final layout.
+  const ready = () => vscode.postMessage({ type: 'webviewReady' });
   if (typeof mermaid !== 'undefined') {
-    mermaid.run().then(() => {
-      const scrollY = window.pageYOffset || document.documentElement.scrollTop;
-      const docHeight = document.documentElement.scrollHeight;
-      // console.log('[LOAD #' + updateCount + '] scrollY=' + scrollY + ', docHeight=' + docHeight);
-      vscode.postMessage({ type: 'webviewReady' });
-    }).catch(() => {
-      const scrollY = window.pageYOffset || document.documentElement.scrollTop;
-      const docHeight = document.documentElement.scrollHeight;
-      // console.log('[LOAD #' + updateCount + '] scrollY=' + scrollY + ', docHeight=' + docHeight);
-      vscode.postMessage({ type: 'webviewReady' });
-    });
+    mermaid.run().then(ready).catch(ready);
   } else {
-    const scrollY = window.pageYOffset || document.documentElement.scrollTop;
-    const docHeight = document.documentElement.scrollHeight;
-    // console.log('[LOAD #' + updateCount + '] scrollY=' + scrollY + ', docHeight=' + docHeight);
-    vscode.postMessage({ type: 'webviewReady' });
+    ready();
   }
 
   // Fallback: if no positioning message (scrollToFile/scrollTo) arrives shortly after
   // load, enable edge lazy-loading anyway so scroll-driven prepend/append still works
-  // for plain reloads that don't reposition (e.g. loadPrevious restore).
+  // for plain reloads that don't reposition.
   setTimeout(() => { initialPositioned = true; }, 800);
 });
 
@@ -267,11 +255,8 @@ window.addEventListener('scroll', () => {
       }
     }
 
-    // Suppress ALL scroll processing until the preview has been positioned at its target.
-    // This stops the transient scrolls produced by a reload (reset-to-0 on load, and the
-    // prepend restore-scroll) from reaching the extension, where they would reset the
-    // cross-file debounce (making the editor switch feel delayed) or schedule a switch to
-    // the wrong file, and from cascading edge-loads.
+    // Suppress ALL scroll processing until the preview has been positioned at its target
+    // (see the initialPositioned comment at the top).
     if (initialPositioned) {
       vscode.postMessage({ type: 'scroll', sourceLine, sourceFile, midLine, scrollingDown, headingPath });
 
@@ -282,7 +267,7 @@ window.addEventListener('scroll', () => {
 
       if (distanceFromTop < viewportHeight * 0.5 && !loadingPrevious) {
         loadingPrevious = true;
-        vscode.postMessage({ type: 'loadPrevious', oldScrollHeight: docHeight, oldScrollTop: currentScrollTop, sourceFile, sourceLine });
+        vscode.postMessage({ type: 'loadPrevious', sourceFile, sourceLine });
       } else if (distanceFromBottom < viewportHeight * 0.5) {
         vscode.postMessage({ type: 'loadNext', count: 2, sourceFile, sourceLine });
       }
@@ -320,164 +305,33 @@ window.addEventListener('contextmenu', (e) => {
 
 window.addEventListener('message', event => {
   const message = event.data;
-  if (message.type === 'updateFileContent') {
-    // Update only the content for a specific file without reloading
-    const filePath = message.filePath;
-    const newHtml = message.html;
-
-    console.log('[UPDATE] Received update for file:', filePath);
-
-    // Save current scroll position
-    const savedScroll = window.pageYOffset || document.documentElement.scrollTop;
-    console.log('[UPDATE] Before update scrollY=' + savedScroll);
-
-    // Find the div with data-file-section attribute by iterating (avoid querySelector escaping issues)
-    const allSections = document.querySelectorAll('[data-file-section]');
-    let fileSection = null;
-    for (let i = 0; i < allSections.length; i++) {
-      if (allSections[i].getAttribute('data-file-section') === filePath) {
-        fileSection = allSections[i];
-        break;
-      }
-    }
-
-    if (!fileSection) {
-      console.log('[UPDATE] Could not find file section for:', filePath);
-      console.log('[UPDATE] Available sections:', allSections.length);
-      if (allSections.length > 0) {
-        console.log('[UPDATE] First section path:', allSections[0].getAttribute('data-file-section'));
-      }
-      return;
-    }
-
-    console.log('[UPDATE] Found file section');
-
-    // Parse new HTML and extract content from wrapper div
-    const temp = document.createElement('div');
-    temp.innerHTML = newHtml;
-    const newContent = temp.querySelector('[data-file-section]');
-
-    if (newContent) {
-      // Replace the content
-      fileSection.innerHTML = newContent.innerHTML;
-      console.log('[UPDATE] Replaced content');
-
-      // Check if mermaid library is available
-      console.log('[UPDATE] Mermaid available:', typeof mermaid !== 'undefined');
-      console.log('[UPDATE] Window.mermaid available:', typeof window.mermaid !== 'undefined');
-
-      // Wait for mermaid to re-render the new content, then restore scroll
-      const mermaidLib = typeof mermaid !== 'undefined' ? mermaid : (typeof window.mermaid !== 'undefined' ? window.mermaid : null);
-
-      if (mermaidLib) {
-        // Find all mermaid blocks in the updated section
-        const mermaidBlocks = fileSection.querySelectorAll('.mermaid');
-        console.log('[UPDATE] Found ' + mermaidBlocks.length + ' mermaid blocks');
-
-        if (mermaidBlocks.length > 0) {
-          mermaidLib.run({ nodes: mermaidBlocks }).then(() => {
-            window.scrollTo(0, savedScroll);
-            const newScroll = window.pageYOffset || document.documentElement.scrollTop;
-            console.log('[UPDATE] After mermaid scrollY=' + newScroll);
-          }).catch((err) => {
-            console.log('[UPDATE] Mermaid error:', err);
-            window.scrollTo(0, savedScroll);
-          });
-        } else {
-          window.scrollTo(0, savedScroll);
-          console.log('[UPDATE] No mermaid blocks, restored scroll');
-        }
-      } else {
-        window.scrollTo(0, savedScroll);
-        console.log('[UPDATE] No mermaid library found');
-      }
-    } else {
-      console.log('[UPDATE] Could not parse new content');
-    }
-  } else if (message.type === 'scrollTo') {
+  if (message.type === 'scrollTo') {
+    // Editor → preview sync: scroll the given source line to the top of the viewport.
     scrollingCount++;
     initialPositioned = true;
     scrollToLine(message.sourceLine, message.sourceFile);
-    setTimeout(() => scrollingCount--, 100);
-  } else if (message.type === 'ensureVisible') {
-    initialPositioned = true;
-    const targetY = lineToScrollY(message.sourceLine, message.sourceFile);
-    if (targetY !== null) {
-      const margin = window.innerHeight * 0.2;
-      const relY = targetY - window.scrollY;
-      if (relY < -margin || relY > window.innerHeight + margin) {
-        scrollingCount++;
-        window.scrollTo(0, targetY - window.innerHeight * 0.3);
-        setTimeout(() => scrollingCount--, 100);
-      }
-    }
-
+    setTimeout(() => scrollingCount = Math.max(0, scrollingCount - 1), 100);
   } else if (message.type === 'scrollToFile') {
+    // Position the preview at a specific file+line: initial open, live-update re-anchor,
+    // and lazy-load slide restore all use this.
     const file = message.file;
     const line = message.line || 0;
     let best = null;
     let bestDist = Infinity;
-    const candidates = [];
     document.querySelectorAll('[data-source-file]').forEach(el => {
-      const elFile = el.getAttribute('data-source-file');
-      candidates.push(elFile);
-      if (elFile === file) {
+      if (el.getAttribute('data-source-file') === file) {
         const elLine = parseInt(el.getAttribute('data-source-line')) || 0;
         const dist = Math.abs(elLine - line);
         if (dist < bestDist) { bestDist = dist; best = el; }
       }
     });
-    console.log('scrollToFile:', file, 'line:', line, 'found:', !!best, 'candidates:', candidates.length);
     if (best) {
       // Position the target at the TOP of the viewport (not centered) and keep it there
-      // while the subsequent files below finish loading, so a short section isn't left
+      // while subsequent files below finish loading, so a short section isn't left
       // partway down the page.
       scrollElementToTop(best);
-      initialPositioned = true;
-    } else {
-      console.log('No match found. Looking for:', file);
-      console.log('Available files:', [...new Set(candidates)]);
-      // Nothing to position against; allow edge-loading to proceed.
-      initialPositioned = true;
     }
-  } else if (message.type === 'restoreScrollAfterPrepend') {
-    console.log('[PREPEND] Restoring scroll, oldHeight=' + message.oldScrollHeight + ', oldScrollTop=' + message.oldScrollTop);
-
-    // Wait for mermaid to finish rendering before adjusting scroll
-    const restoreScroll = () => {
-      const newScrollHeight = document.documentElement.scrollHeight;
-      const heightDiff = newScrollHeight - message.oldScrollHeight;
-      console.log('[PREPEND] newHeight=' + newScrollHeight + ', heightDiff=' + heightDiff);
-
-      if (heightDiff > 0) {
-        // Set scroll to old position plus the height of prepended content
-        const newScroll = message.oldScrollTop + heightDiff;
-        console.log('[PREPEND] Setting scroll to ' + newScroll + ' (was at ' + message.oldScrollTop + ')');
-        // Guard with scrollingCount so this programmatic scroll isn't treated as a user
-        // scroll (which would post a scroll message and reset the cross-file debounce).
-        scrollingCount++;
-        window.scrollTo(0, newScroll);
-        setTimeout(() => { scrollingCount = Math.max(0, scrollingCount - 1); }, 50);
-        // Re-enable edge-loading only AFTER the restore scroll settled, and re-enable
-        // loadPrevious so continued upward scrolling still works.
-        setTimeout(() => {
-          initialPositioned = true;
-          loadingPrevious = false;
-          console.log('[PREPEND] Re-enabled loadPrevious trigger');
-        }, 200);
-      } else {
-        initialPositioned = true;
-        loadingPrevious = false;
-      }
-    };
-
-    // Wait for mermaid if available
-    const mermaidLib = typeof mermaid !== 'undefined' ? mermaid : (typeof window.mermaid !== 'undefined' ? window.mermaid : null);
-    if (mermaidLib) {
-      mermaidLib.run().then(restoreScroll).catch(restoreScroll);
-    } else {
-      // Small delay to let DOM settle
-      setTimeout(restoreScroll, 50);
-    }
+    // Whether or not a match was found, allow edge-loading / scroll reporting to proceed.
+    initialPositioned = true;
   }
 });
