@@ -16,6 +16,10 @@ class StateManager {
     this.updatePreview = null
     /** @type {import('vscode').Disposable|null} Listener for editor scroll position changes */
     this.scrollSync = null
+    /** @type {import('vscode').Disposable|null} Listener for editor selection (cursor) changes */
+    this.selectionSync = null
+    /** @type {import('vscode').Disposable|null} Listener for active-editor changes (file switching) */
+    this.editorFocusListener = null
     /** @type {import('vscode').Disposable|null} Listener for file saves (JSON changes) */
     this.fileSaveListener = null
     /** @type {boolean} Whether the current preview shows multiple files */
@@ -48,6 +52,9 @@ class StateManager {
     this.isSpecRootPreview = false
     /** @type {{file: string, line: number}|null} Last single-file position for scroll restore */
     this.restoreScrollTarget = null
+    /** @type {{file: string, line: number}|null} Target to position the single-file preview at
+     *  once the webview reports it is ready (deterministic replacement for racy timers). */
+    this.pendingScrollTarget = null
     /** @type {{file: string|null, line: number}|null} Last right-clicked element's source info */
     this.lastContextTarget = null
     /** @type {string|null} Last folder chosen for export, remembered across exports within a session */
@@ -72,15 +79,28 @@ class StateManager {
     this.adjacentFileCache = new Map()
     /** @type {boolean} Flag to suppress automatic scrollToFile after HTML reload */
     this.suppressScrollToFile = false
+    /** @type {import('vscode').ViewColumn|null} Last known editor column of the preview
+     *  panel. Tracked while the panel is visible because WebviewPanel.viewColumn becomes
+     *  undefined once the panel is hidden (e.g. covered by a text editor in its group). */
+    this.previewViewColumn = null
   }
 
   /** Disposes listeners and resets preview-related state. */
   disposeListeners() {
     if (this.updatePreview) this.updatePreview.dispose()
     if (this.scrollSync) this.scrollSync.dispose()
+    if (this.selectionSync) this.selectionSync.dispose()
+    if (this.editorFocusListener) this.editorFocusListener.dispose()
     if (this.fileSaveListener) this.fileSaveListener.dispose()
+    if (this._crossFileSwitchTimer) {
+      clearTimeout(this._crossFileSwitchTimer)
+      this._crossFileSwitchTimer = null
+      this._pendingCrossFileSwitch = null
+    }
     this.updatePreview = null
     this.scrollSync = null
+    this.selectionSync = null
+    this.editorFocusListener = null
     this.fileSaveListener = null
   }
 

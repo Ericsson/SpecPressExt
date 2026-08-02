@@ -106,9 +106,31 @@ class PreviewManager {
     const state = this.state
     state.panel.webview.onDidReceiveMessage(message => {
       if (message.type === 'webviewReady') {
+        // A reload just completed (initial load, live update, or lazy-load slide);
+        // clear the context-loading guard so future slides can happen.
+        state._loadingContext = false
         if (state.isMultiFilePreview && state.restoreScrollTarget) {
           state.panel.webview.postMessage({ type: 'scrollToFile', file: state.restoreScrollTarget.file, line: state.restoreScrollTarget.line })
           state.restoreScrollTarget = null
+        } else if (!state.isMultiFilePreview && state.pendingScrollTarget && !state.suppressScrollToFile) {
+          // Deterministically position the single-file preview once the webview has
+          // loaded (replaces the racy setTimeout-based scrollToFile). Used both for the
+          // initial open and to re-anchor after a live-update reload.
+          const target = state.pendingScrollTarget
+          state.pendingScrollTarget = null
+          // The editor may only finish restoring its scroll position AFTER setupPreview
+          // ran (e.g. switching to an already-open file scrolled to a later line). For
+          // editor-anchored targets, read its current top visible line now — webviewReady
+          // fires later, by which time the editor view has settled — so the preview opens
+          // at the right place instead of the top. (loadNext targets are NOT editor-based:
+          // they preserve the preview's own scroll position, so they keep their line.)
+          let line = target.line
+          if (target.useEditorViewport && state.currentEditor
+            && state.currentEditor.document.uri.fsPath === target.file) {
+            const vr = state.currentEditor.visibleRanges[0]
+            if (vr) line = vr.start.line
+          }
+          state.panel.webview.postMessage({ type: 'scrollToFile', file: target.file, line })
         }
       } else if (message.type === 'scroll') {
         if (state.panel && message.headingPath) {
@@ -121,23 +143,52 @@ class PreviewManager {
           const line = Math.floor(message.sourceLine)
 
           if (message.sourceFile && normalizeFile(message.sourceFile) !== normalizeFile(currentFile)) {
-            // Preview midpoint has crossed into a different file — open it in the editor
-            // without stealing focus and without rebuilding the preview.
+            // Preview crossed into a different file. Opening it in the editor via
+            // showTextDocument MID-SCROLL steals the webview's wheel-scroll focus and
+            // makes scrolling stutter. So debounce it: remember the target and only
+            // switch the editor once scrolling has settled (the editor "catches up" when
+            // the user pauses). The cheap same-file reveal below stays live meanwhile.
             const switchLine = Math.floor(message.midLine != null ? message.midLine : message.sourceLine)
-            state._suppressPreviewRebuild = true
-            vscode.workspace.openTextDocument(vscode.Uri.file(message.sourceFile)).then(doc => {
-              vscode.window.showTextDocument(doc, vscode.ViewColumn.One, /* preserveFocus */ true).then(ed => {
-                state.currentEditor = ed
-                state.previewScrollingCount = (state.previewScrollingCount || 0) + 1
-                const range = new vscode.Range(switchLine, 0, switchLine, 0)
-                ed.revealRange(range, vscode.TextEditorRevealType.AtTop)
-                setTimeout(() => {
-                  state.previewScrollingCount = Math.max(0, (state.previewScrollingCount || 1) - 1)
-                  state._suppressPreviewRebuild = false
-                }, 100)
+            const prev = state._pendingCrossFileSwitch
+            state._pendingCrossFileSwitch = { file: message.sourceFile, line: switchLine }
+            if (!prev || prev.file !== message.sourceFile) {
+              logger.log('[XFILE] schedule switch', { to: path.basename(message.sourceFile), line: switchLine, from: path.basename(currentFile) })
+            }
+            if (state._crossFileSwitchTimer) clearTimeout(state._crossFileSwitchTimer)
+            state._crossFileSwitchTimer = setTimeout(() => {
+              state._crossFileSwitchTimer = null
+              const target = state._pendingCrossFileSwitch
+              state._pendingCrossFileSwitch = null
+              logger.log('[XFILE] timer fired -> executing switch', { target: target ? path.basename(target.file) : null })
+              if (!target || !state.panel || state.isMultiFilePreview
+                || state.lastFocusedIsEditor || !state.currentEditor) return
+              if (normalizeFile(target.file) === normalizeFile(state.currentEditor.document.uri.fsPath)) return
+              state._suppressPreviewRebuild = true
+              vscode.workspace.openTextDocument(vscode.Uri.file(target.file)).then(doc => {
+                vscode.window.showTextDocument(doc, vscode.ViewColumn.One, /* preserveFocus */ true).then(ed => {
+                  logger.log('[XFILE] editor shown', { file: path.basename(target.file), line: target.line, edColumn: ed.viewColumn })
+                  state.currentEditor = ed
+                  state.previewScrollingCount = (state.previewScrollingCount || 0) + 1
+                  const range = new vscode.Range(target.line, 0, target.line, 0)
+                  ed.revealRange(range, vscode.TextEditorRevealType.AtTop)
+                  setTimeout(() => {
+                    state.previewScrollingCount = Math.max(0, (state.previewScrollingCount || 1) - 1)
+                    state._suppressPreviewRebuild = false
+                  }, 100)
+                })
+              }).catch((err) => {
+                logger.log('[XFILE] open/show FAILED', { error: String(err) })
+                state._suppressPreviewRebuild = false
               })
-            }).catch(() => { state._suppressPreviewRebuild = false })
+            }, 500)
             return
+          }
+
+          // Back in / still within the current file: cancel any pending cross-file switch.
+          if (state._crossFileSwitchTimer) {
+            clearTimeout(state._crossFileSwitchTimer)
+            state._crossFileSwitchTimer = null
+            state._pendingCrossFileSwitch = null
           }
 
           state.previewScrollingCount = (state.previewScrollingCount || 0) + 1
@@ -148,35 +199,69 @@ class PreviewManager {
           setTimeout(() => state.previewScrollingCount = Math.max(0, (state.previewScrollingCount || 1) - 1), 100)
         }
       } else if (message.type === 'loadPrevious') {
+        logger.log('[LOAD_PREV] received', { contextStartIdx: state.contextStartIdx, contextEndIdx: state.contextEndIdx, willLoad: state.contextStartIdx > 0, inProgress: !!state._loadingContext })
+        // Serialize context reloads (one at a time) — cleared on webviewReady.
+        if (state._loadingContext) return
         if (state.contextStartIdx > 0) {
-          const oldScrollHeight = message.oldScrollHeight || 0
-          const oldScrollTop = message.oldScrollTop || 0
-
-          logger.log(`[LOAD_PREV] Expanding context upward, oldScrollHeight=${oldScrollHeight}, oldScrollTop=${oldScrollTop}`)
-
-          state.contextStartIdx = Math.max(0, state.contextStartIdx - 1)
+          state._loadingContext = true
+          const STEP = 4
+          const MAX_WINDOW = 9
+          state.contextStartIdx = Math.max(0, state.contextStartIdx - STEP)
+          // Slide the window: trim the far (bottom) end so the rendered document stays a
+          // bounded size. Without this the window grows unboundedly and each reload has to
+          // re-render an ever-larger document (+ all its mermaid), so reloads balloon from
+          // ~0.5s to many seconds. A bounded window keeps every reload fast and consistent.
+          // Sliding by a batch (not 1) leaves a buffer above the anchor so we don't
+          // immediately re-trigger another slide.
+          if (state.contextEndIdx - state.contextStartIdx + 1 > MAX_WINDOW) {
+            state.contextEndIdx = state.contextStartIdx + MAX_WINDOW - 1
+          }
+          // Anchor-based restore: reposition to the same top-of-viewport source line after
+          // the reload. This works even though the bottom was trimmed (unlike the old
+          // pixel-based restore, which assumed the bottom was unchanged).
+          if (message.sourceFile != null) {
+            state.pendingScrollTarget = { file: message.sourceFile, line: Math.floor(message.sourceLine || 0) }
+          }
           const html = buildContextPreview(state, this.config, () => this.ensureHandler(this.config.getSpecRootForFile(state.currentEditor && state.currentEditor.document.uri.fsPath)))
-
-          state.suppressScrollToFile = true
           state.panel.webview.html = html
-
-          setTimeout(() => {
-            if (state.panel && oldScrollHeight > 0) {
-              state.panel.webview.postMessage({
-                type: 'restoreScrollAfterPrepend',
-                oldScrollHeight,
-                oldScrollTop
-              })
-            }
-            state.suppressScrollToFile = false
-          }, 100)
         }
       } else if (message.type === 'loadNext') {
         const count = message.count || 1
         const newEndIdx = Math.min(state.contextFiles.length - 1, state.contextEndIdx + count)
+        logger.log('[LOAD_NEXT] received', { contextStartIdx: state.contextStartIdx, contextEndIdx: state.contextEndIdx, newEndIdx, willLoad: newEndIdx > state.contextEndIdx, inProgress: !!state._loadingContext })
+        // Serialize context reloads (one at a time) — cleared on webviewReady.
+        if (state._loadingContext) return
         if (newEndIdx > state.contextEndIdx) {
-          state.contextEndIdx = newEndIdx
+          state._loadingContext = true
+          const STEP = 4
+          const MAX_WINDOW = 9
+          state.contextEndIdx = Math.min(state.contextFiles.length - 1, state.contextEndIdx + STEP)
+          // Slide the window: trim the far (top) end to keep it bounded (see loadPrevious).
+          if (state.contextEndIdx - state.contextStartIdx + 1 > MAX_WINDOW) {
+            state.contextStartIdx = state.contextEndIdx - MAX_WINDOW + 1
+          }
+          // Anchor-based restore to the current top-of-viewport source line.
+          if (message.sourceFile != null) {
+            state.pendingScrollTarget = { file: message.sourceFile, line: Math.floor(message.sourceLine || 0) }
+          }
           const html = buildContextPreview(state, this.config, () => this.ensureHandler(this.config.getSpecRootForFile(state.currentEditor && state.currentEditor.document.uri.fsPath)))
+          state.panel.webview.html = html
+        }
+      } else if (message.type === 'ensureContentBelow') {
+        // The webview reported it could not bring the target to the top because there
+        // isn't a full viewport of content below it (a short file whose few following
+        // files are also short). Extend the context window downward with real files so
+        // the target can reach the top, then re-anchor to the editor's top visible line.
+        // Terminates naturally once contextEndIdx reaches the last file.
+        if (state.isMultiFilePreview || !state.currentEditor) return
+        if (state._loadingContext) return
+        if (state.contextEndIdx < state.contextFiles.length - 1) {
+          state._loadingContext = true
+          state.contextEndIdx = Math.min(state.contextFiles.length - 1, state.contextEndIdx + 2)
+          const vr = state.currentEditor.visibleRanges[0]
+          const topLine = vr ? vr.start.line : state.currentEditor.selection.active.line
+          state.pendingScrollTarget = { file: state.currentEditor.document.uri.fsPath, line: topLine, useEditorViewport: true }
+          const html = buildContextPreview(state, this.config, () => this.ensureHandler(this.config.getSpecRootForFile(state.currentEditor.document.uri.fsPath)))
           state.panel.webview.html = html
         }
       } else if (message.type === 'openFile') {
@@ -258,13 +343,20 @@ class PreviewManager {
     state.currentFileIndex = currentIndex
 
     // Reset or initialize context window
-    state.contextStartIdx = Math.max(0, currentIndex - 2)
-    state.contextEndIdx = Math.min(files.length - 1, currentIndex + 2)
+    // Initial context window radius. A larger radius means moderate up/down scrolling
+    // stays within pre-rendered content, avoiding the full-reload lazy-load (which drops
+    // the wheel gesture and briefly "locks" the preview). Kept bounded so the initial
+    // render and live-update rebuilds stay fast (source files can be large).
+    state.contextStartIdx = Math.max(0, currentIndex - 4)
+    state.contextEndIdx = Math.min(files.length - 1, currentIndex + 4)
 
     state.disposeListeners()
     state.currentEditor = editor
     state.isMultiFilePreview = false
-    state.lastFocusedIsEditor = false
+    // Opening/activating a file focuses the editor, not the preview. Keep the
+    // preview→editor scroll sync OFF until the user explicitly clicks the preview
+    // (which sends a 'focus' message that flips this to false).
+    state.lastFocusedIsEditor = true
     vscode.commands.executeCommand('setContext', 'specpress.isMultiFilePreview', false)
 
     // Recreate the panel when localResourceRoots need to change (change tracking
@@ -292,6 +384,85 @@ class PreviewManager {
           localResourceRoots: this.buildResourceRoots()
         })
       state.panel._changeTrackingActive = !!state.changeTrackingCommit
+      // Remember the panel's column while it is visible (it becomes undefined once the
+      // panel is hidden), so we can detect and relocate editors that cover it.
+      if (state.panel.viewColumn) state.previewViewColumn = state.panel.viewColumn
+      logger.log('[RELOC] panel created', { initialViewColumn: state.panel.viewColumn, trackedColumn: state.previewViewColumn })
+      state.panel.onDidChangeViewState(() => {
+        const panel = state.panel
+        if (!panel) return
+        if (panel.viewColumn) state.previewViewColumn = panel.viewColumn
+
+        const ate = vscode.window.activeTextEditor
+        let layout = null
+        try {
+          if (vscode.window.tabGroups) {
+            layout = {
+              activeGroupCol: vscode.window.tabGroups.activeTabGroup ? vscode.window.tabGroups.activeTabGroup.viewColumn : null,
+              groups: vscode.window.tabGroups.all.map(g => ({
+                col: g.viewColumn,
+                active: g.isActive,
+                activeTab: g.activeTab ? g.activeTab.label : null,
+                inputKind: g.activeTab && g.activeTab.input ? g.activeTab.input.constructor.name : null
+              }))
+            }
+          }
+        } catch (e) { layout = { error: String(e) } }
+
+        logger.log('[RELOC] panel view state changed', {
+          viewColumn: panel.viewColumn,
+          visible: panel.visible,
+          active: panel.active,
+          trackedColumn: state.previewViewColumn,
+          relocatingEditor: !!state._relocatingEditor,
+          activeTextEditorFile: ate ? ate.document.uri.fsPath : null,
+          activeTextEditorCol: ate ? ate.viewColumn : null,
+          layout
+        })
+
+        // The active-editor event does NOT fire when a file opens over a focused webview,
+        // but this view-state event does. If the preview became hidden and a source
+        // editor now occupies its column, that editor is covering the preview — relocate
+        // it to the other column so the preview stays visible.
+        if (!panel.visible && !state.isMultiFilePreview && !state._relocatingEditor
+          && ate && state.previewViewColumn && ate.viewColumn === state.previewViewColumn) {
+          const p = ate.document.uri.fsPath
+          const isSource = ate.document.languageId === 'markdown' || p.endsWith('.asn') || this.isCRJsonFile(p)
+          logger.log('[RELOC] preview hidden with source editor in its column', { isSource, file: p })
+          if (isSource) {
+            state._relocatingEditor = true
+            const moveCmd = state.previewViewColumn === vscode.ViewColumn.One
+              ? 'workbench.action.moveEditorToRightGroup'
+              : 'workbench.action.moveEditorToLeftGroup'
+            logger.log('[RELOC] (viewState) executing move', { moveCmd, previewViewColumn: state.previewViewColumn })
+            Promise.resolve(vscode.commands.executeCommand(moveCmd)).then(() => {
+              const ae = vscode.window.activeTextEditor
+              logger.log('[RELOC] (viewState) move resolved', {
+                panelVisibleAfter: state.panel ? state.panel.visible : null,
+                activeEditorColAfter: ae ? ae.viewColumn : null,
+                activeEditorFileAfter: ae ? ae.document.uri.fsPath : null
+              })
+              // Ensure the preview reflects the newly opened file (the active-editor event
+              // may not have fired for a file opened over the webview).
+              if (ae && (!state.currentEditor || ae.document !== state.currentEditor.document)) {
+                const np = ae.document.uri.fsPath
+                if (this.isCRJsonFile(np)) {
+                  this.setupCRPreview(ae)
+                } else if ((ae.document.languageId === 'markdown' || np.endsWith('.asn'))
+                  && this.config.isInsideSpecRoot(np)) {
+                  state.contextStartIdx = -1
+                  state.contextEndIdx = -1
+                  this.setupPreview(ae)
+                }
+              }
+              setTimeout(() => { state._relocatingEditor = false }, 300)
+            }, (err) => {
+              logger.log('[RELOC] (viewState) move REJECTED', { error: String(err) })
+              state._relocatingEditor = false
+            })
+          }
+        }
+      })
       state.panel.onDidDispose(() => state.onPanelDisposed())
       this.registerMessageHandler()
 
@@ -323,25 +494,43 @@ class PreviewManager {
     state.panel.webview.html = html
     state.panel.title = this.previewTitlePrefix()
 
-    // Scroll to current file and line
-    setTimeout(() => {
-      if (state.panel && state.currentEditor && !state.suppressScrollToFile) {
-        const cursorLine = state.currentEditor.selection.active.line
-        state.panel.webview.postMessage({
-          type: 'scrollToFile',
-          file: state.currentEditor.document.uri.fsPath,
-          line: cursorLine
-        })
+    // Scroll to current file and line — set a pending target that is applied
+    // deterministically once the webview reports 'webviewReady' (avoids the race
+    // where a fixed timer fires before layout/mermaid settle or after the load-time
+    // scroll event has already triggered edge lazy-loading).
+    // Use the editor's top VISIBLE line (not the cursor line): when switching to an
+    // already-open file that was scrolled to a later position, the cursor is often
+    // still at line 0, which would incorrectly show the top of the file.
+    if (!state.suppressScrollToFile && state.currentEditor) {
+      const vr = state.currentEditor.visibleRanges[0]
+      const topLine = vr ? vr.start.line : state.currentEditor.selection.active.line
+      state.pendingScrollTarget = {
+        file: state.currentEditor.document.uri.fsPath,
+        line: topLine,
+        useEditorViewport: true
       }
-    }, 100)
+    }
 
     // Live update on text changes (debounced)
     let updateTimeout = null
     state.updatePreview = vscode.workspace.onDidChangeTextDocument(e => {
       if (e.document === state.currentEditor.document && state.panel) {
+        // Editing means the editor is focused — keep preview→editor sync OFF so the
+        // live-update reload below can't drag the editor to a neighbouring file.
+        state.lastFocusedIsEditor = true
         if (updateTimeout) clearTimeout(updateTimeout)
         updateTimeout = setTimeout(() => {
           if (!state.panel || !state.currentEditor) return
+          // Reassigning webview.html reloads the webview and resets its scroll to the
+          // top (a preceding context file). Re-anchor the preview to the editor's
+          // current top-of-viewport line so it stays where the user is editing.
+          const vr = state.currentEditor.visibleRanges[0]
+          const topLine = vr ? vr.start.line : state.currentEditor.selection.active.line
+          state.pendingScrollTarget = {
+            file: state.currentEditor.document.uri.fsPath,
+            line: topLine,
+            useEditorViewport: true
+          }
           const html = buildContextPreview(state, this.config, () => this.ensureHandler(this.config.getSpecRootForFile(state.currentEditor.document.uri.fsPath)))
           state.panel.webview.html = html
         }, 500)
@@ -365,6 +554,9 @@ class PreviewManager {
     state.scrollSync = vscode.window.onDidChangeTextEditorVisibleRanges(e => {
       if (state.panel && !state.isMultiFilePreview && !state.previewScrollingCount
         && state.currentEditor && e.textEditor.document === state.currentEditor.document) {
+        // A genuine editor scroll (not driven by the preview) implies the editor is the
+        // focused pane — keep preview→editor sync OFF until the user clicks the preview.
+        state.lastFocusedIsEditor = true
         state.editorScrollingCount = (state.editorScrollingCount || 0) + 1
 
         const visibleRange = e.visibleRanges[0]
@@ -387,12 +579,106 @@ class PreviewManager {
       }
     })
 
-    // Switch preview when user opens a different spec file
-    const editorFocusListener = vscode.window.onDidChangeActiveTextEditor(ed => {
-      if (ed && state.currentEditor && ed.document === state.currentEditor.document) {
+    // Cursor/selection changes in the current editor mean the user clicked back into
+    // the editor. Returning focus from the webview to the editor does NOT fire
+    // onDidChangeActiveTextEditor (the active text editor never changed), so this is
+    // the signal that re-enables the "editor is focused" state and stops the
+    // preview→editor sync from dragging the editor.
+    state.selectionSync = vscode.window.onDidChangeTextEditorSelection(e => {
+      if (state.panel && !state.isMultiFilePreview && !state.previewScrollingCount
+        && state.currentEditor && e.textEditor.document === state.currentEditor.document) {
+        state.lastFocusedIsEditor = true
+      }
+    })
+
+    // Switch preview when user opens a different spec file.
+    // Stored on state (and disposed via disposeListeners) so repeated setupPreview calls
+    // on file switches don't accumulate duplicate listeners.
+    state.editorFocusListener = vscode.window.onDidChangeActiveTextEditor(ed => {
+      if (!ed) {
+        logger.log('[RELOC] onDidChangeActiveTextEditor fired with no editor (ed=null)')
+        return
+      }
+
+      // Keep the preview's column up to date whenever it is currently visible.
+      if (state.panel && state.panel.viewColumn) state.previewViewColumn = state.panel.viewColumn
+
+      let layoutInfo = null
+      try {
+        if (vscode.window.tabGroups) {
+          layoutInfo = {
+            activeGroupViewColumn: vscode.window.tabGroups.activeTabGroup
+              ? vscode.window.tabGroups.activeTabGroup.viewColumn : null,
+            groups: vscode.window.tabGroups.all.map(g => ({
+              viewColumn: g.viewColumn,
+              active: g.isActive,
+              activeTabLabel: g.activeTab ? g.activeTab.label : null,
+              tabCount: g.tabs.length
+            }))
+          }
+        }
+      } catch (e) { layoutInfo = { error: String(e) } }
+
+      logger.log('[RELOC] active editor changed', {
+        edFile: ed.document.uri.fsPath,
+        edViewColumn: ed.viewColumn,
+        panelExists: !!state.panel,
+        panelViewColumnLive: state.panel ? state.panel.viewColumn : null,
+        panelVisible: state.panel ? state.panel.visible : null,
+        previewViewColumnTracked: state.previewViewColumn,
+        isMultiFilePreview: state.isMultiFilePreview,
+        relocatingEditor: !!state._relocatingEditor,
+        currentEditorFile: state.currentEditor ? state.currentEditor.document.uri.fsPath : null,
+        layout: layoutInfo
+      })
+
+      // If a source editor became active in the SAME column as the preview, it is
+      // covering the preview (e.g. the preview was focused and a file was opened from
+      // the Explorer). Relocate that editor to the other column so the preview stays
+      // visible. We compare against the TRACKED preview column because the panel's own
+      // viewColumn is undefined while it is hidden behind the editor. VS Code doesn't
+      // allow intercepting the Explorer open beforehand, so we react right after the
+      // editor becomes active; the move re-fires this event with the editor in its new
+      // column, which then runs the normal preview setup below.
+      if (state.panel && !state.isMultiFilePreview && !state._relocatingEditor
+        && ed.viewColumn && state.previewViewColumn && ed.viewColumn === state.previewViewColumn) {
+        const p = ed.document.uri.fsPath
+        const isSource = ed.document.languageId === 'markdown' || p.endsWith('.asn') || this.isCRJsonFile(p)
+        logger.log('[RELOC] editor is in preview column', { isSource, languageId: ed.document.languageId })
+        if (isSource) {
+          state._relocatingEditor = true
+          const moveCmd = state.previewViewColumn === vscode.ViewColumn.One
+            ? 'workbench.action.moveEditorToRightGroup'
+            : 'workbench.action.moveEditorToLeftGroup'
+          logger.log('[RELOC] executing move command', { moveCmd, previewViewColumn: state.previewViewColumn })
+          Promise.resolve(vscode.commands.executeCommand(moveCmd)).then(() => {
+            logger.log('[RELOC] move command resolved', {
+              newActiveEditorColumn: vscode.window.activeTextEditor ? vscode.window.activeTextEditor.viewColumn : null,
+              panelVisibleAfter: state.panel ? state.panel.visible : null,
+              panelViewColumnAfter: state.panel ? state.panel.viewColumn : null
+            })
+            setTimeout(() => { state._relocatingEditor = false }, 300)
+          }, (err) => {
+            logger.log('[RELOC] move command REJECTED', { error: String(err) })
+            state._relocatingEditor = false
+          })
+          return
+        }
+      } else {
+        logger.log('[RELOC] relocation condition NOT met', {
+          panel: !!state.panel,
+          notMultiFile: !state.isMultiFilePreview,
+          notRelocating: !state._relocatingEditor,
+          edHasColumn: !!ed.viewColumn,
+          trackedColumn: state.previewViewColumn,
+          columnsEqual: ed.viewColumn === state.previewViewColumn
+        })
+      }
+
+      if (state.currentEditor && ed.document === state.currentEditor.document) {
         state.currentEditor = ed
         state.lastFocusedIsEditor = true
-      } else if (ed && state.panel && !state.isMultiFilePreview && !state._suppressPreviewRebuild) {
+      } else if (state.panel && !state.isMultiFilePreview && !state._suppressPreviewRebuild) {
         const newPath = ed.document.uri.fsPath
         if (this.isCRJsonFile(newPath)) {
           this.setupCRPreview(ed)
@@ -410,7 +696,6 @@ class PreviewManager {
 
     state.panel.onDidDispose(() => {
       state.onPanelDisposed()
-      editorFocusListener.dispose()
     })
   }
 
@@ -455,7 +740,7 @@ class PreviewManager {
     })
 
     // Switch away when user opens a different file
-    const editorFocusListener = vscode.window.onDidChangeActiveTextEditor(ed => {
+    state.editorFocusListener = vscode.window.onDidChangeActiveTextEditor(ed => {
       if (ed && ed !== editor && state.panel) {
         const newPath = ed.document.uri.fsPath
         if (this.isCRJsonFile(newPath)) {
@@ -472,7 +757,6 @@ class PreviewManager {
 
     state.panel.onDidDispose(() => {
       state.onPanelDisposed()
-      editorFocusListener.dispose()
     })
   }
 
