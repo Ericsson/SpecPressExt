@@ -70,9 +70,13 @@ class BcValidationViewProvider {
           progress.report({ message: 'Loading validator...' })
           const { loadAndValidateAll } = await import('specpress/lib/ran4/ValidateData.js')
           const { logger } = await import('specpress/lib/ran4/Logger.js')
+          const { jsonReadLimits } = await import('specpress/lib/ran4/JsonTools.js')
 
           progress.report({ message: 'Opening log file...' })
           await logger.openFile(logPath)
+
+          // Reset cumulative read-size counter so repeated runs don't accumulate
+          jsonReadLimits.reset()
 
           progress.report({ message: 'Loading and validating files...' })
 
@@ -384,14 +388,14 @@ class BcValidationViewProvider {
           logList.innerHTML = '<div class="no-logs">No logs available</div>';
         } else {
           logList.innerHTML = message.logs.map(log =>
-            \`<div class="log-item" data-path="\${log.path}">\${log.label}</div>\`
+            \`<div class="log-item" data-path="\${encodeURIComponent(log.path)}">\${log.label}</div>\`
           ).join('');
 
           document.querySelectorAll('.log-item').forEach(item => {
             item.addEventListener('click', () => {
               vscode.postMessage({
                 command: 'openLog',
-                logPath: item.getAttribute('data-path')
+                logPath: decodeURIComponent(item.getAttribute('data-path'))
               });
             });
           });
