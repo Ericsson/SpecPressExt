@@ -447,6 +447,11 @@
           "type": "boolean",
           "default": false,
           "description": "Enable debug logging to temp file for troubleshooting. Useful when running in Extension Development Host."
+        },
+        "specpress.tdocPattern": {
+          "type": "string",
+          "default": "",
+          "description": "Regex pattern for TDoc Number validation. When set, overrides the default 3GPP pattern from the schema. Use this to allow non-standard patterns (e.g. \"^6GSM-[0-9]{6}$\") or to restrict to a specific working group (e.g. \"^R2-[0-9]{7}$\")."
         }
       }
     },

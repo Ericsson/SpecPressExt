@@ -297,5 +297,25 @@ test('loadMermaidConfig returns default config from extension dir', () => {
   assert.ok(config.startsWith('{'))
 })
 
+test('getTdocPattern returns null when not configured', () => {
+  resetMocks()
+  const c = new ConfigLoader()
+  assert.strictEqual(c.getTdocPattern(), null)
+})
+
+test('getTdocPattern returns null for empty string', () => {
+  resetMocks()
+  mockConfig.tdocPattern = ''
+  const c = new ConfigLoader()
+  assert.strictEqual(c.getTdocPattern(), null)
+})
+
+test('getTdocPattern returns configured pattern', () => {
+  resetMocks()
+  mockConfig.tdocPattern = '^6GSM-[0-9]{6}$'
+  const c = new ConfigLoader()
+  assert.strictEqual(c.getTdocPattern(), '^6GSM-[0-9]{6}$')
+})
+
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed > 0 ? 1 : 0)

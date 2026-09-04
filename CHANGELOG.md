@@ -5,6 +5,20 @@ All notable changes to the SpecPress Extension for VS Code will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`specpress.tdocPattern` setting** — Regex pattern for TDoc Number validation. When set, overrides the default 3GPP pattern from the CR cover page schema. Use to allow non-standard patterns (e.g. `^6GSM-[0-9]{6}$`) or restrict to a specific working group (e.g. `^R2-[0-9]{7}$`).
+- **`configLoader.getTdocPattern()`** — Returns the configured `specpress.tdocPattern` value, or `null` if not set.
+
+### Changed
+
+- **CR cover page validation decoupled from export** — Invalid CR metadata no longer blocks DOCX export. Instead, a modal warning is shown with "Continue" and "Open CR File" options, allowing export to proceed despite validation errors. The `validate-cr` CI job remains the authoritative gate for blocking merges.
+- **`loadCRCoverPageData()` always returns data** — Previously returned `data: null` on validation failure; now always returns the parsed object so callers can render with a warning rather than being blocked.
+- **`coverPageSelector.js`** — CR cover page is always offered in the picker regardless of validation errors. If the user selects it and validation errors exist, a modal warning is shown with "Continue" and "Open CR meta data" options. Dismissing or choosing "Open CR meta data" returns `null`; "Continue" proceeds with the data as-is.
+- **`exportDocx.js`** — Callers only need to check for `null` from `selectCoverPage()` — no separate error-handling logic needed.
+
 ## [0.7.10]
 
 ### Changed
@@ -208,6 +222,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic preview functionality
 - DOCX export support
 
+[Unreleased]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.10...HEAD
 [0.7.6]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.3...v0.7.4

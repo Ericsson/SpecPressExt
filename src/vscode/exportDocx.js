@@ -1,7 +1,7 @@
 const vscode = require('vscode')
 const fs = require('fs')
 const path = require('path')
-const { getRepoRoot, createCommitResolver, cleanupDiagramCache, collectFiles, concatenateFiles, formatExportMessage, Md2Docx, ensureMermaidBundle, loadCRCoverPageData, mergeDocxVersions, detectBackends } = require('specpress')
+const { getRepoRoot, createCommitResolver, cleanupDiagramCache, collectFiles, concatenateFiles, formatExportMessage, Md2Docx, ensureMermaidBundle, mergeDocxVersions, detectBackends } = require('specpress')
 const { pickVersions, collectFilesFromUris, collectFilesFromCommitUris, insertOmittedMarkers, makeMermaidRenderer, formatExportTimestamp, showExportNotification, generateCRFilename, warnIfMscgenMissing } = require('./helpers')
 const { selectCoverPage } = require('./coverPageSelector')
 
@@ -89,16 +89,7 @@ async function exportDocx(state, config, context, uri, allUris) {
   const ts = formatExportTimestamp()
   let defaultName
   if (isDiff) {
-    // Try CR-based filename
-    let crFilename = null
-    if (specRoot) {
-      const { detectCRCoverPage } = require('specpress')
-      const crFilePath = detectCRCoverPage(specRoot)
-      if (crFilePath) {
-        const crResult = loadCRCoverPageData(crFilePath)
-        if (crResult.valid && crResult.data) crFilename = generateCRFilename(crResult.data)
-      }
-    }
+    const crFilename = crCoverPageData ? generateCRFilename(crCoverPageData) : null
     defaultName = crFilename || `${ts} DIFF_${versions.map(v => v.label).join('_')}.docx`
   } else {
     const { shortHash, commitInput } = versions[0]
@@ -260,7 +251,8 @@ async function _exportDiff(state, config, context, uris, versions, repoRoot, spe
  * Exports a standalone DOCX containing only the rendered CR cover page.
  */
 async function exportCRCoverOnly(state, config, context, crFilePath) {
-  const crResult = loadCRCoverPageData(crFilePath)
+  const tdocPattern = config.getTdocPattern()
+  const crResult = loadCRCoverPageData(crFilePath, tdocPattern ? { tdocPattern } : {})
   if (!crResult.valid) {
     const action = await vscode.window.showErrorMessage(
       `CR cover page validation failed:\n${crResult.errors.join('\n')}`, 'Open CR File')

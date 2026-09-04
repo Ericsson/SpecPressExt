@@ -214,6 +214,14 @@ class ConfigLoader {
   }
 
   /**
+   * Returns the TDoc pattern override from workspace settings, or null if not set.
+   * @returns {string|null}
+   */
+  getTdocPattern() {
+    return this.raw.get('tdocPattern', '') || null
+  }
+
+  /**
    * Resolves the default folder for export dialogs.
    * @param {string|null} lastExportFolder - Last folder chosen in this session.
    * @returns {string} Absolute path to the default export folder.

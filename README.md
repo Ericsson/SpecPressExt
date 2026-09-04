@@ -105,6 +105,7 @@ The following settings can be configured in VS-Code's workspace or user settings
 | `specpress.mermaidConfigFile` | string | SpecPress default | Path to a mermaid configuration JSON file, relative to workspace root. It is recommended not to set this parameter and rather rely on the default configuration provided with the SpecPressExtension. |
 | `specpress.mscgenConfigFile` | string | SpecPress default | Path to an MSC-Gen configuration JSON file, relative to workspace root. It is recommended not to set this parameter and rather rely on the default configuration provided with the SpecPressExtension. |
 | `specpress.enableDebugLogging` | boolean | `false` | Enable debug logging to temp file for troubleshooting. Useful when running in Extension Development Host. |
+| `specpress.tdocPattern` | string | `""` | Regex pattern for TDoc Number validation. When set, overrides the default 3GPP pattern from the schema. Use to allow non-standard patterns (e.g. `^6GSM-[0-9]{6}$`) or restrict to a specific working group (e.g. `^R2-[0-9]{7}$`). |
 | `specpress.bandCombinationFolder` | string | `""` | Path to the folder containing RAN4 band combination JSON files (CA_*.json, DC_*.json, n*.json). Relative to workspace root or absolute. Required for the Band Combinations side pane. |
 
 ## 1.5 Usage
