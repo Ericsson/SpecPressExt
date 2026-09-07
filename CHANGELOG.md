@@ -5,12 +5,16 @@ All notable changes to the SpecPress Extension for VS Code will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.11]
 
 ### Added
 
 - **`specpress.tdocPattern` setting** — Regex pattern for TDoc Number validation. When set, overrides the default 3GPP pattern from the CR cover page schema. Use to allow non-standard patterns (e.g. `^6GSM-[0-9]{6}$`) or restrict to a specific working group (e.g. `^R2-[0-9]{7}$`).
 - **`configLoader.getTdocPattern()`** — Returns the configured `specpress.tdocPattern` value, or `null` if not set.
+
+### Fixed
+
+- **Band Combinations validation byte counter** — Reset the cumulative read-size counter before each validation run to avoid false "file too large" alarms on repeated validations within the same session.
 
 ### Changed
 
@@ -222,7 +226,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic preview functionality
 - DOCX export support
 
-[Unreleased]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.10...HEAD
+[0.7.11]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.10...v0.7.11
 [0.7.6]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.3...v0.7.4
