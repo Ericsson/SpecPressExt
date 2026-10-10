@@ -95,6 +95,11 @@ class StateManager {
     this._pendingCrossFileSwitch = null
     /** @type {ReturnType<typeof setTimeout>|null} Debounce timer for the cross-file switch. */
     this._crossFileSwitchTimer = null
+    /** @type {ReturnType<typeof setTimeout>|null} Debounce timer for cursor-driven preview sync. */
+    this._cursorSyncTimer = null
+    /** @type {number} Date.now()-based deadline until which cursor-driven sync takes
+     *  priority over the plain scroll-driven sync (see previewManager.js). */
+    this._cursorSyncActiveUntil = 0
   }
 
   /** Disposes listeners and resets preview-related state. */
@@ -108,6 +113,10 @@ class StateManager {
       clearTimeout(this._crossFileSwitchTimer)
       this._crossFileSwitchTimer = null
       this._pendingCrossFileSwitch = null
+    }
+    if (this._cursorSyncTimer) {
+      clearTimeout(this._cursorSyncTimer)
+      this._cursorSyncTimer = null
     }
     this.updatePreview = null
     this.scrollSync = null

@@ -58,6 +58,22 @@ function scrollToLine(fractionalLine, sourceFile) {
 }
 
 /**
+ * Scrolls the webview so that fractionalLine sits at a given fraction of the viewport
+ * height (0 = top, 0.5 = vertically centered), clamped to the document's scrollable
+ * range. Used for cursor-driven sync, where we want the corresponding preview content
+ * visible "side-by-side" with the cursor rather than always pinned to the top — this
+ * matters when a single source line (e.g. a large image) spans much more height in the
+ * preview than in the editor.
+ */
+function scrollToLineAt(fractionalLine, sourceFile, viewportFraction) {
+  const y = lineToScrollY(fractionalLine, sourceFile);
+  if (y === null) return;
+  const target = y - window.innerHeight * viewportFraction;
+  const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+  window.scrollTo(0, Math.min(maxScroll, Math.max(0, target)));
+}
+
+/**
  * True when the page cannot scroll far enough to place pixel offset `y` at the top of
  * the viewport, i.e. there is less than one viewport of content below `y`.
  */
@@ -306,10 +322,23 @@ window.addEventListener('contextmenu', (e) => {
 window.addEventListener('message', event => {
   const message = event.data;
   if (message.type === 'scrollTo') {
-    // Editor → preview sync: scroll the given source line to the top of the viewport.
+    // Editor → preview sync (pure scrolling): scroll the given source line to the top
+    // of the viewport. This mirrors "the editor's visible top maps to the preview's
+    // visible top", which feels natural while scrolling either pane.
     scrollingCount++;
     initialPositioned = true;
     scrollToLine(message.sourceLine, message.sourceFile);
+    setTimeout(() => scrollingCount = Math.max(0, scrollingCount - 1), 100);
+  } else if (message.type === 'scrollToCursor') {
+    // Editor → preview sync (cursor-driven): bring the cursor's line into view
+    // side-by-side with the viewport rather than pinning it to the top. This matters
+    // when a single source line (e.g. a large image or diagram) spans much more
+    // height in the preview than the one line it occupies in the editor — pinning it
+    // to the top would otherwise hide the content next to where the user is typing.
+    scrollingCount++;
+    initialPositioned = true;
+    const fraction = typeof message.viewportFraction === 'number' ? message.viewportFraction : 0.4;
+    scrollToLineAt(message.sourceLine, message.sourceFile, fraction);
     setTimeout(() => scrollingCount = Math.max(0, scrollingCount - 1), 100);
   } else if (message.type === 'scrollToFile') {
     // Position the preview at a specific file+line: initial open, live-update re-anchor,

@@ -24,6 +24,14 @@ const CONTEXT_SLIDE_STEP = 4      // files added per edge slide (batch, not 1, t
 // Delay after scrolling settles before the preview→editor cross-file switch fires.
 // Opening a document mid-scroll steals the webview's wheel focus, so we debounce it.
 const CROSS_FILE_SWITCH_DEBOUNCE_MS = 500
+// Debounce for cursor-driven preview sync (typing/arrow keys/clicks), so fast
+// keystrokes coalesce into one postMessage instead of one per character.
+const CURSOR_SYNC_DEBOUNCE_MS = 120
+// How long a cursor move "wins" over the plain scroll sync. A single user action (e.g.
+// clicking elsewhere in the editor) typically fires both onDidChangeTextEditorSelection
+// and onDidChangeTextEditorVisibleRanges; while this window is open the scroll handler
+// defers to the cursor-driven positioning instead of re-pinning to the viewport top.
+const CURSOR_SYNC_PRIORITY_MS = 250
 
 
 /**
@@ -513,13 +521,18 @@ class PreviewManager {
       }
     })
 
-    // Scroll sync: editor → preview
+    // Scroll sync: editor → preview (pure scrolling — mouse wheel, scrollbar, PageUp/Down).
+    // Pins the editor's top-of-viewport line to the preview's top-of-viewport, which
+    // feels natural while scrolling either pane. Deferred while a cursor-driven sync
+    // (see selectionSync below) is still "in charge" of the preview position, so the two
+    // handlers firing for the same user action don't fight each other.
     state.scrollSync = vscode.window.onDidChangeTextEditorVisibleRanges(e => {
       if (state.panel && !state.isMultiFilePreview && !state.previewScrollingCount
         && state.currentEditor && e.textEditor.document === state.currentEditor.document) {
         // A genuine editor scroll (not driven by the preview) implies the editor is the
         // focused pane — keep preview→editor sync OFF until the user clicks the preview.
         state.lastFocusedIsEditor = true
+        if (state._cursorSyncActiveUntil && Date.now() < state._cursorSyncActiveUntil) return
         state.editorScrollingCount = (state.editorScrollingCount || 0) + 1
 
         const visibleRange = e.visibleRanges[0]
@@ -543,14 +556,42 @@ class PreviewManager {
     })
 
     // Cursor/selection changes in the current editor mean the user clicked back into
-    // the editor. Returning focus from the webview to the editor does NOT fire
-    // onDidChangeActiveTextEditor (the active text editor never changed), so this is
-    // the signal that re-enables the "editor is focused" state and stops the
-    // preview→editor sync from dragging the editor.
+    // the editor, is navigating with the keyboard, or is typing. Returning focus from
+    // the webview to the editor does NOT fire onDidChangeActiveTextEditor (the active
+    // text editor never changed), so this is also the signal that re-enables the
+    // "editor is focused" state and stops the preview→editor sync from dragging the
+    // editor.
+    //
+    // Beyond that, it drives the preview position itself: rather than pinning the
+    // cursor's line to the top of the preview (which can hide it entirely when a large
+    // image/diagram occupies one source line but a whole page in the preview), it keeps
+    // the corresponding preview content visible side-by-side with the cursor. Plain
+    // scrolling (no selection change) is unaffected and keeps the top-pinned behaviour
+    // above.
+    let cursorSyncTimeout = null
     state.selectionSync = vscode.window.onDidChangeTextEditorSelection(e => {
       if (state.panel && !state.isMultiFilePreview && !state.previewScrollingCount
         && state.currentEditor && e.textEditor.document === state.currentEditor.document) {
         state.lastFocusedIsEditor = true
+        state._cursorSyncActiveUntil = Date.now() + CURSOR_SYNC_PRIORITY_MS
+
+        const cursorLine = e.selections[0] ? e.selections[0].active.line : null
+        if (cursorLine == null) return
+        const currentFile = state.currentEditor.document.uri.fsPath
+
+        if (cursorSyncTimeout) clearTimeout(cursorSyncTimeout)
+        cursorSyncTimeout = setTimeout(() => {
+          cursorSyncTimeout = null
+          if (!state.panel || !state.currentEditor) return
+          state.editorScrollingCount = (state.editorScrollingCount || 0) + 1
+          state.panel.webview.postMessage({
+            type: 'scrollToCursor',
+            sourceLine: cursorLine,
+            sourceFile: currentFile
+          })
+          setTimeout(() => state.editorScrollingCount = Math.max(0, (state.editorScrollingCount || 1) - 1), 100)
+        }, CURSOR_SYNC_DEBOUNCE_MS)
+        state._cursorSyncTimer = cursorSyncTimeout
       }
     })
 

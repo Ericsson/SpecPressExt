@@ -87,6 +87,14 @@ test('disposeListeners handles null listeners', () => {
   s.disposeListeners() // should not throw
 })
 
+test('disposeListeners clears the cursor-sync debounce timer', () => {
+  const s = new StateManager()
+  let fired = false
+  s._cursorSyncTimer = setTimeout(() => { fired = true }, 10)
+  s.disposeListeners()
+  assert.strictEqual(s._cursorSyncTimer, null)
+})
+
 test('resetMultiFileState clears all multi-file fields', () => {
   const s = new StateManager()
   s.multiFileContent = 'content'
