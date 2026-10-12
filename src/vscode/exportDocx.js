@@ -85,6 +85,18 @@ async function exportDocx(state, config, context, uri, allUris) {
   const frontPageData = coverPageChoice.type === 'standard' ? coverPageChoice.frontPage : null
   const crCoverPageData = coverPageChoice.type === 'cr' ? coverPageChoice.crData : null
 
+  // For a diff export, ask about omitted section markers before the save dialog so
+  // all questions are grouped together up front.
+  let withMarkers = false
+  if (isDiff) {
+    const insertPlaceholders = await vscode.window.showQuickPick(
+      [{ label: 'Yes', value: true }, { label: 'No', value: false }],
+      { placeHolder: 'Insert placeholders for omitted sections?' }
+    )
+    if (!insertPlaceholders) return
+    withMarkers = insertPlaceholders.value
+  }
+
   // Build default filename
   const ts = formatExportTimestamp()
   let defaultName
@@ -112,7 +124,7 @@ async function exportDocx(state, config, context, uri, allUris) {
   }
 
   if (isDiff) {
-    await _exportDiff(state, config, context, uris, versions, repoRoot, specRoot, crCoverPageData, outputPath)
+    await _exportDiff(state, config, context, uris, versions, repoRoot, specRoot, crCoverPageData, outputPath, withMarkers)
   } else {
     await _exportSingle(state, config, context, uris, versions[0], repoRoot, specRoot, firstFiles, frontPageData, crCoverPageData, outputPath)
   }
@@ -160,7 +172,7 @@ async function _exportSingle(state, config, context, uris, version, repoRoot, sp
   }
 }
 
-async function _exportDiff(state, config, context, uris, versions, repoRoot, specRoot, crCoverPageData, outputPath) {
+async function _exportDiff(state, config, context, uris, versions, repoRoot, specRoot, crCoverPageData, outputPath, withMarkers) {
   const tmpDir = require('os').tmpdir()
   const timestamp = Date.now()
 
@@ -172,14 +184,6 @@ async function _exportDiff(state, config, context, uris, versions, repoRoot, spe
       }
     }
   } catch (e) {}
-
-  // Ask about omitted section markers
-  const insertPlaceholders = await vscode.window.showQuickPick(
-    [{ label: 'Yes', value: true }, { label: 'No', value: false }],
-    { placeHolder: 'Insert placeholders for omitted sections?' }
-  )
-  if (!insertPlaceholders) return
-  const withMarkers = insertPlaceholders.value
 
   try {
     warnIfMscgenMissing()

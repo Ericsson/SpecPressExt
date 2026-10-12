@@ -30,11 +30,11 @@ async function selectCoverPage(config, specRoot) {
     })
   }
 
+  options.push({ label: '$(circle-slash) No Cover Page', description: '', value: 'none' })
+
   if (hasFrontPageData) {
     options.push({ label: '$(book) Standard Front Page', description: '', value: 'standard' })
   }
-
-  options.push({ label: '$(circle-slash) No Cover Page', description: '', value: 'none' })
 
   if (options.length === 1) return { type: 'none' }
 
