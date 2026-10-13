@@ -204,10 +204,16 @@ async function _exportDiff(state, config, context, uris, versions, repoRoot, spe
 
           let readFile = undefined
           let fileResolver = null
+          let cacheDir = undefined
           if (v.commitInput) {
             const resolver = createCommitResolver(repoRoot, specRoot, v.commitInput)
             readFile = (f) => resolver.readFile(f, 'utf8')
             fileResolver = (f) => resolver.readFile(f)
+            // Cache mermaid/mscgen renders into the commit resolver's own unpacked
+            // temp directory instead of the real local cached/ folder — otherwise
+            // rendering this historical revision's diagrams would leak cache
+            // artifacts into the local working tree as spurious untracked files.
+            cacheDir = resolver.cacheDir
           }
 
           let content = concatenateFiles(files, readFile, specRoot)
@@ -222,7 +228,8 @@ async function _exportDiff(state, config, context, uris, versions, repoRoot, spe
             mermaidConfig,
             specRootPath: specRoot,
             mermaidRenderer: makeMermaidRenderer(mermaidConfig, mermaidBundlePath, specRoot),
-            fileResolver: fileResolver || undefined
+            fileResolver: fileResolver || undefined,
+            cacheDir
           })
           await converter.convert(content, docxPath, path.dirname(files[0]), null, { crCoverPageData })
           docxFiles.push(docxPath)
