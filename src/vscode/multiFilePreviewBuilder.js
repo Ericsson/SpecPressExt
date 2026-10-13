@@ -144,11 +144,23 @@ async function previewMultiple(state, config, ensureHandler, registerMessageHand
         const compareFiles = baselineRef === 'local'
           ? collectFiles(uris.map(u => u.fsPath))
           : collectFilesFromCommit(baselineRef.repoRoot, uris.map(u => u.fsPath), baselineRef.commit)
-        const compareContent = concatenateFiles(
+        let compareContent = concatenateFiles(
           compareFiles,
           (f) => compareResolver.readFile(f, 'utf8'),
           sectionSpecRoot
         )
+
+        // Apply the same omitted-section markers to the compare (new) version as the
+        // base (old) version (processedContent, above) — see the comment there. Without
+        // this, a partial selection containing genuinely new content produces a
+        // one-sided "=== unmodified sections omitted ===" artifact that htmldiff-js
+        // tangles up with the real insertion.
+        if (specRoot && !state.isSpecRootPreview) {
+          const allFiles = collectFiles([specRoot])
+          if (compareFiles.length < allFiles.length) {
+            compareContent = insertOmittedMarkers(compareContent, compareFiles, allFiles)
+          }
+        }
 
         // Resolve compare-version front page data
         let compareFrontPageData = frontPageData
