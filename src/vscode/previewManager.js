@@ -1,10 +1,11 @@
 const vscode = require('vscode')
 const path = require('path')
 const fs = require('fs')
-const { Md2Html, renderCRCoverPageHTML, createLocalResolver, getRepoRoot } = require('specpress')
+const { Md2Html, renderCRCoverPageHTML, createLocalResolver } = require('specpress')
 const { buildFileContext, buildContextPreview } = require('./contextPreviewBuilder')
 const { previewMultiple } = require('./multiFilePreviewBuilder')
 const { applyDiff } = require('./diffRenderer')
+const { resolveRepoRootForSpec } = require('./helpers')
 
 /** Load scroll sync script from external file */
 const scrollSyncScriptPath = path.join(__dirname, 'scrollSync.js')
@@ -409,10 +410,12 @@ class PreviewManager {
         state.panel = null
       }
 
-      // Create a local resolver so all file access goes through FileResolver uniformly
+      // Create a local resolver so all file access goes through FileResolver uniformly.
+      // resolveRepoRootForSpec ensures the "cached/" diagram sibling directory stays
+      // covered by the resolver's rootDir (and the webview's localResourceRoots) even
+      // when the folder isn't a git repository — see its doc comment in helpers.js.
       const specRoot = this.config.findSpecRootFor(filePath) || this.config.wsRoot || path.dirname(filePath)
-      let repoRoot = specRoot
-      try { repoRoot = getRepoRoot(specRoot) } catch (e) { /* not a git repo */ }
+      const repoRoot = resolveRepoRootForSpec(specRoot)
       state.currentResolver = createLocalResolver(repoRoot, specRoot)
 
       state.panel = vscode.window.createWebviewPanel('specpressPreview', 'Preview',
@@ -458,8 +461,7 @@ class PreviewManager {
       }, 100)
     } else {
       const specRoot = this.config.findSpecRootFor(filePath) || this.config.wsRoot || path.dirname(filePath)
-      let repoRoot = specRoot
-      try { repoRoot = getRepoRoot(specRoot) } catch (e) { /* not a git repo */ }
+      const repoRoot = resolveRepoRootForSpec(specRoot)
       state.currentResolver = createLocalResolver(repoRoot, specRoot)
       this.ensureHandler(this.config.getSpecRootForFile(filePath))
     }

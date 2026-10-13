@@ -1,7 +1,7 @@
 const vscode = require('vscode')
 const path = require('path')
-const { collectFiles, concatenateFiles, collectFilesFromCommit, createLocalResolver, createCommitResolver, getRepoRoot, diffHtml } = require('specpress')
-const { insertOmittedMarkers } = require('./helpers')
+const { collectFiles, concatenateFiles, collectFilesFromCommit, createLocalResolver, createCommitResolver, diffHtml } = require('specpress')
+const { insertOmittedMarkers, resolveRepoRootForSpec } = require('./helpers')
 
 /**
  * Builds and displays a multi-file preview.
@@ -49,16 +49,17 @@ async function previewMultiple(state, config, ensureHandler, registerMessageHand
       if (commitRef && specRoot) {
         oldResolver = createCommitResolver(commitRef.repoRoot, specRoot, commitRef.commit)
       } else {
-        let repoRoot = specRoot || config.wsRoot || ''
-        try { repoRoot = getRepoRoot(repoRoot) } catch (e) { /* not a git repo */ }
+        // resolveRepoRootForSpec ensures the "cached/" diagram sibling directory stays
+        // covered without requiring git. When there's no specRoot at all, fall back to
+        // the workspace root (there's no sibling cache directory to protect in that case).
+        const repoRoot = specRoot ? resolveRepoRootForSpec(specRoot) : (config.wsRoot || '')
         oldResolver = createLocalResolver(repoRoot, specRoot || repoRoot)
       }
 
       // Build resolver for the compare (new) version, if requested
       let compareResolver = null
       if (baselineRef === 'local') {
-        let repoRoot = specRoot || config.wsRoot || ''
-        try { repoRoot = getRepoRoot(repoRoot) } catch (e) { /* not a git repo */ }
+        const repoRoot = specRoot ? resolveRepoRootForSpec(specRoot) : (config.wsRoot || '')
         compareResolver = createLocalResolver(repoRoot, specRoot || repoRoot)
       } else if (baselineRef && specRoot) {
         compareResolver = createCommitResolver(baselineRef.repoRoot, specRoot, baselineRef.commit)

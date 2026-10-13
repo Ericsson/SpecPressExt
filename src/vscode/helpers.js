@@ -2,7 +2,7 @@ const vscode = require('vscode')
 const fs = require('fs')
 const path = require('path')
 const { execSync, execFileSync } = require('child_process')
-const { getGitLog, collectFiles, collectFilesFromCommit, insertOmittedMarkers, findWinword } = require('specpress')
+const { getGitLog, getRepoRoot, collectFiles, collectFilesFromCommit, insertOmittedMarkers, findWinword } = require('specpress')
 
 const NOT_CONFIGURED_MSG = 'SpecPress: specpress.specificationRootPath is not configured. Set it in workspace settings to enable SpecPress features.'
 
@@ -37,6 +37,40 @@ async function showExportNotification(message, folderPath, filePath) {
     else if (process.platform === 'darwin') exec(`open "${folderPath}"`)
     else if (process.platform === 'linux') exec(`xdg-open "${folderPath}"`)
     else vscode.env.openExternal(vscode.Uri.file(folderPath))
+  }
+}
+
+/**
+ * Resolves the "repo root" used to build a local FileResolver for a specification root.
+ *
+ * The resolver's rootDir must cover both the spec tree and the "cached/" diagram
+ * directory, which specpress always places as a *sibling* of the spec root (see
+ * svgCacheDir in specpress/lib/common/diagramCache.js) — regardless of git. When the
+ * folder is a git repository, the actual repo root (via `git rev-parse --show-toplevel`)
+ * almost always covers that sibling directory too, since the spec root is normally a
+ * subfolder of the repo. But without git (a plain local folder, no .git present), there
+ * is no repo root to query — falling back to specRoot itself (as earlier code did) is
+ * wrong: it excludes the sibling "cached/" directory from the resolver's rootDir and
+ * from the webview's localResourceRoots, so cached mermaid/MSC-Gen SVGs silently fail to
+ * load in the live preview (broken image / empty placeholder), with no error message.
+ *
+ * Falling back to specRoot's *parent* directory instead keeps the sibling "cached/" dir
+ * covered, matching the convention, and works whether or not the folder is a git repo.
+ *
+ * @param {string} specRoot - Absolute path to the specification root.
+ * @param {string} [fallbackIfNoParent] - Used if specRoot has no parent to fall back to
+ *   (e.g. specRoot is itself a filesystem root). Defaults to specRoot.
+ * @returns {string} Absolute path to use as the FileResolver's rootDir.
+ */
+function resolveRepoRootForSpec(specRoot, fallbackIfNoParent) {
+  if (!specRoot) return fallbackIfNoParent || specRoot
+  try {
+    return getRepoRoot(specRoot)
+  } catch (e) {
+    // Not a git repository (or git is not installed) — fall back to the spec root's
+    // parent so the sibling "cached/" directory stays covered.
+    const parent = path.dirname(specRoot)
+    return (parent && parent !== specRoot) ? parent : (fallbackIfNoParent || specRoot)
   }
 }
 
@@ -630,5 +664,6 @@ module.exports = {
   getBranchLog,
   buildBranchStepItems,
   isLikelyProtectedBranch,
-  matchesTyped
+  matchesTyped,
+  resolveRepoRootForSpec
 }
