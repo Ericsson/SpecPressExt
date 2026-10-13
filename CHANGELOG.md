@@ -5,6 +5,25 @@ All notable changes to the SpecPress Extension for VS Code will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.7.12] - 2026-10-13
+
+### Added
+
+- **Enhanced Git version selection by branch** — The commit picker used for change tracking, HTML export, and DOCX export now offers a two-step flow: pick a branch (with the current/parent branch and protected branches tagged, plus "Local files" and "HEAD" pinned at the top) and then drill down into that branch's commit history. Branches sharing a commit are shown as ref decorations in commit descriptions.
+
+### Fixed
+
+- **Cached diagrams failed to load when the specification is not inside a git repository** — `resolveRepoRootForSpec()` previously fell back to the specification root itself when no git repository could be found, excluding the sibling `cached/` directory (where specpress always places rendered mermaid/MSC-Gen SVGs) from the `FileResolver`'s root and from the webview's `localResourceRoots`. This silently broke cached diagram rendering in the live preview (empty figure box, no error). Fixed to fall back to the spec root's *parent* directory instead, keeping the sibling `cached/` directory covered whether or not git is available.
+- **Mermaid/MSC-Gen diagram cache leaking into the local `cached/` folder during DOCX DIFF export** — Each revision's `Md2Docx` converter now passes the commit resolver's own `cacheDir` so that rendering a historical revision's diagrams caches into that resolver's temp directory instead of the real local working tree, where they previously showed up as spurious untracked files.
+- **One-sided "unmodified sections omitted" marker in multi-file DIFF preview** — The omitted-section marker was applied only to the baseline (old) version of a partial file selection, never to the compare (new) version, before diffing. This made `htmldiff-js` treat the marker as a spurious one-sided deletion/insertion, most noticeable when the selection also contained genuinely new content (e.g. a newly added subsection with new images) — the marker artifact got tangled up with the real insertion. Fixed by applying the same marker symmetrically to both versions.
+- **Scroll sync broke when editing a markdown file containing links to large images** — Fixed cursor-driven scroll synchronization between the editor and the live preview webview when the document contains large embedded images.
+
+### Changed
+
+- **Updated to specpress 3.4.17** — Pulls in fixes for: SVG images embedded via plain markdown links not rendering in DOCX export; mermaid/MSC-Gen diagram caching writing into the real local `cached/` folder instead of a git commit resolver's temp directory during change-tracking diffs (affecting HTML export, DOCX export, and the live preview); and baseline images referenced relative to a co-located `assets/` folder not resolving in HTML export/diff when renamed locally. See the [specpress changelog](https://github.com/Ericsson/specpress/blob/main/CHANGELOG.md#3416---2026-10-13) for details.
+
 ## [0.7.11]
 
 ### Added
@@ -226,6 +245,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic preview functionality
 - DOCX export support
 
+[0.7.12]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.11...v0.7.12
 [0.7.11]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.10...v0.7.11
 [0.7.6]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/Ericsson/SpecPressExt/compare/v0.7.4...v0.7.5
